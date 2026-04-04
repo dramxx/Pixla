@@ -18,12 +18,15 @@ export function Layout({ children }: LayoutProps) {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div className="flex flex-col overflow-hidden" style={{ height: '100vh', backgroundColor: 'var(--bg-primary)' }}>
-      <nav className="nav flex-none" style={{ height: '4rem' }}>
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ height: "100vh", backgroundColor: "var(--bg-primary)" }}
+    >
+      <nav className="nav flex-none" style={{ height: "4rem" }}>
         <div className="nav-container">
-          <div className="flex items-center gap-6">
-            <Link to="/" className="nav-logo">
-              🖌️ Pixla
+          <div className="flex items-center" style={{ gap: "2em" }}>
+            <Link to="/" className="nav-logo text-3xl">
+              PIXLA
             </Link>
             <div className="nav-links">
               <Link

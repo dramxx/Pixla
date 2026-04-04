@@ -16,6 +16,7 @@ export function Canvas({
   showGrid = true,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -24,6 +25,9 @@ export function Canvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    canvas.width = size * scale;
+    canvas.height = size * scale;
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!pixelData || !palette.length) {
@@ -62,12 +66,18 @@ export function Canvas({
   }, [pixelData, palette, size, scale, showGrid]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={size * scale}
-      height={size * scale}
-      className="border border-border canvas-grid"
-      style={{ imageRendering: "pixelated" }}
-    />
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center p-4 box-border">
+      <canvas
+        ref={canvasRef}
+        className="border border-border canvas-grid"
+        style={{ 
+          imageRendering: "pixelated",
+          maxWidth: "100%",
+          maxHeight: "100%",
+          width: "auto",
+          height: "auto"
+        }}
+      />
+    </div>
   );
 }

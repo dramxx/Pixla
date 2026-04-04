@@ -43,9 +43,7 @@
 body {
   background-color: var(--bg-primary);
   color: var(--text-muted);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-    sans-serif;
+  font-family: "Pixelify Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
   height: 100vh;
   margin: 0;
@@ -189,6 +187,7 @@ a:hover {
   padding: 0.625rem 1rem;
   font-size: 0.875rem;
   font-weight: 500;
+  font-family: "Pixelify Sans", sans-serif;
   border-radius: var(--radius);
   cursor: pointer;
   transition: all 0.15s;
@@ -242,6 +241,7 @@ a:hover {
   width: 100%;
   padding: 0.625rem 0.75rem;
   font-size: 0.875rem;
+  font-family: "Pixelify Sans", sans-serif;
   background-color: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -278,6 +278,7 @@ a:hover {
 .select option {
   background-color: var(--bg-primary);
   color: var(--text-muted);
+  font-family: "Pixelify Sans", sans-serif;
 }
 
 /* Checkbox styling */
@@ -515,14 +516,6 @@ input[type="checkbox"]:hover {
 .border-r {
   border-right: 1px solid var(--border);
 }
-.border-l {
-  border-left: 1px solid var(--border);
-}
-.h-[calc(100vh-4rem)] {
-  height: calc(100vh - 4rem);
-}
-
-/* Borders */
 .border {
   border: 1px solid var(--border);
 }

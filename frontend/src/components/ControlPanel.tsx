@@ -1,14 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Play, Download, Settings } from "lucide-react";
+import { Play } from "lucide-react";
 import { usePalettesStore } from "@/store/palettes";
 import { useGenerationsStore } from "@/store/generations";
 import { useModelsStore } from "@/store/models";
 
-interface ControlPanelProps {
-  onDownload?: () => void;
-}
-
-export function ControlPanel({ onDownload }: ControlPanelProps) {
+export function ControlPanel() {
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState(16);
   const [spriteType, setSpriteType] = useState("block");
@@ -18,7 +14,7 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
   const [showLoraSettings, setShowLoraSettings] = useState(false);
 
   const { palettes, currentPalette } = usePalettesStore();
-  const { createGeneration, isGenerating, currentGeneration } =
+  const { createGeneration, isGenerating } =
     useGenerationsStore();
   const {
     models,
@@ -62,19 +58,6 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
       console.error("Failed to generate:", error);
     }
   };
-
-  const handleDownload = () => {
-    if (currentGeneration?.id) {
-      window.open(
-        `/api/generations/${currentGeneration.id}/download`,
-        "_blank",
-      );
-    }
-    onDownload?.();
-  };
-
-  const hasResult =
-    currentGeneration?.status === "complete" && currentGeneration?.image_path;
 
   return (
     <div className="p-6 flex flex-col h-full justify-between">
@@ -154,9 +137,9 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
           </button>
 
           {showLoraSettings && (
-            <div className="mt-2 p-3 border border-border rounded-md bg-muted/30 space-y-2">
+            <div className="mt-2 p-3 rounded-md space-y-2">
               {loras.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted">
                   No LoRAs found. Place LoRA files in storage/loras/ folder.
                 </p>
               ) : (
@@ -176,19 +159,24 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
                         onChange={() => toggleLora(lora)}
                         disabled={isGenerating}
                       />
-                      <span className="text-sm flex-1">{lora.name}</span>
+                      <span className="text-sm flex-1 whitespace-nowrap">{lora.name}</span>
                       {isEnabled && (
-                        <input
-                          type="range"
-                          min="0"
-                          max="2"
-                          step="0.1"
-                          value={enabledLora?.scale || 1}
-                          onChange={(e) =>
-                            setLoraScale(lora.id, parseFloat(e.target.value))
-                          }
-                          className="w-20"
-                        />
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="2"
+                            step="0.1"
+                            value={enabledLora?.scale || 1}
+                            onChange={(e) =>
+                              setLoraScale(lora.id, parseFloat(e.target.value))
+                            }
+                            className="w-full"
+                          />
+                          <span className="text-sm text-muted">
+                            {(enabledLora?.scale || 1).toFixed(1)}
+                          </span>
+                        </div>
                       )}
                     </div>
                   );
@@ -206,7 +194,7 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-sm">Steps</span>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-muted">
                   {numInferenceSteps}
                 </span>
               </div>
@@ -225,7 +213,7 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-sm">Guidance</span>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-muted">
                   {guidanceScale}
                 </span>
               </div>

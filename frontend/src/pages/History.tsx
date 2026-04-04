@@ -220,7 +220,8 @@ function GenerationDetailModal({ generation, onClose }: GenerationDetailModalPro
               <div className="flex gap-2">
                 <button
                   onClick={handleDownload}
-                  className="btn btn-primary flex-1"
+                  className="btn btn-primary"
+                  style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem' }}
                 >
                   <Download className="w-4 h-4" />
                   Download PNG
@@ -311,8 +312,10 @@ export function History() {
               {gen.status === "complete" && gen.image_path && (
                 <button
                   onClick={(e) => handleDownload(gen.id, e)}
-                  className="px-4 py-2 border border-input rounded-md hover:bg-accent"
+                  className="btn btn-primary"
+                  style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem' }}
                 >
+                  <Download className="w-4 h-4" />
                   Download
                 </button>
               )}

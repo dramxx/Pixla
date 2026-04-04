@@ -66,10 +66,10 @@ This document explains the architecture of Pixla — how the components work tog
 **Key Components**:
 
 - `App.tsx` — Main routing and layout
+- `Layout.tsx` — Navigation bar and overall layout structure
+- `Home.tsx` — Main generation page with three-column layout
 - `Canvas.tsx` — Pixel art display and editing
-- `ControlPanel.tsx` — Generation configuration
-- `ModelSelector.tsx` — Model and LoRA management
-- `PaletteManager.tsx` — Color palette CRUD
+- `ControlPanel.tsx` — All generation controls (prompt, model, LoRA, sampling, palette)
 
 **State Management**:
 
@@ -108,8 +108,9 @@ backend/
 │   ├── services/
 │   │   ├── diffusion.py    # Stable Diffusion inference
 │   │   ├── quantization.py # Palette quantization
-│   │   ├── canvas.py        # Canvas manipulation
-│   │   └── model_discovery.py  # Model/LoRA discovery from folders
+│   │   ├── agent.py        # LLM agent for pixel refinement
+│   │   ├── autotile.py     # Autotile/tileset generation
+│   │   └── canvas.py        # Canvas manipulation
 │   ├── models/
 │   │   ├── config.py       # Model/LoRA configs
 │   │   ├── palette.py      # Palette model
@@ -195,9 +196,11 @@ Diffusion Output (RGBA)  →  Resize to target (e.g., 16x16)
                          Convert to PNG with palette colors
 ```
 
-### Agent (Optional Refinement)
+### Agent (LLM Refinement)
 
 **Purpose**: Use LLM to refine and add details to quantized pixels
+
+**Status**: ✅ **IMPLEMENTED**
 
 **Why Optional**:
 
@@ -216,6 +219,33 @@ Initial Pixels + Prompt + Palette + Tools
     - draw_pixel, fill_rect, etc.: Modify
         ↓
     Final refined pixels
+```
+
+### Autotile Generation
+
+**Purpose**: Generate 16 tile variants from a base tile for seamless tiling
+
+**Status**: ✅ **IMPLEMENTED**
+
+**How it works**:
+
+- Takes base pixel art tile (e.g., grass block)
+- Generates 16 variants using bitmask (TOP=1, RIGHT=2, BOTTOM=4, LEFT=8)
+- Applies edge shading, outlines, and rounded corners based on adjacent tiles
+- Creates seamless tilesets for game maps
+
+**Bitmask Examples**:
+
+- `0` = isolated (all edges exposed)
+- `15` = surrounded (no edges exposed)
+- `1` = top edge only, `2` = right edge only, etc.
+
+**Process**:
+
+```python
+# Generate all 16 variants
+tileset = generate_tileset(pixel_data, palette, size)
+# Returns: {0: Image, 1: Image, ..., 15: Image}
 ```
 
 ### Database (SQLite)
@@ -300,19 +330,36 @@ storage/
 ### Real-Time Updates (SSE)
 
 ```python
-# Backend: generations.py
+# Backend: generations.py - Event-driven SSE using asyncio.Event
+gen_events = {}  # Global dict for generation events
+
+def _get_gen_event(gen_id: int) -> asyncio.Event:
+    if gen_id not in gen_events:
+        gen_events[gen_id] = asyncio.Event()
+    return gen_events[gen_id]
+
+def _notify_gen_update(gen_id: int):
+    if gen_id in gen_events:
+        gen_events[gen_id].set()
+
 @router.get("/generations/{id}/stream")
 async def stream_generation(id: int, request: Request):
-    async def event_generator():
-        while True:
-            # Check for updates (from generation process)
-            gen = db.get_generation(id)
-            yield f"data: {json.dumps(gen)}\n\n"
+    event = _get_gen_event(id)
 
-            if gen.status in ["complete", "error"]:
+    async def event_generator():
+        for _ in range(120):  # 2 minute timeout
+            gen = db.get_generation(id)
+            if gen:
+                yield f"data: {json.dumps({'id': gen.id, 'status': gen.status.value, 'iterations': gen.iterations})}\n\n"
+
+            if gen and gen.status in ["complete", "error"]:
+                _clear_gen_event(id)
                 break
 
-            await asyncio.sleep(0.5)
+            await event.wait(timeout=1.0)  # Event-driven, not polling
+            event.clear()
+
+        _clear_gen_event(id)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 ```
@@ -497,13 +544,32 @@ GET /health → {status: "ok"}
 
 ## Future Enhancements
 
-- [ ] **Agent refinement** — LLM-based pixel refinement for better results
+### v1.1 (Current)
+
+- [ ] **Progress status** - Better generation progress indicators
+- [ ] **Download fixes** - Fix PNG download functionality
+- [ ] **Edit mode** - Fix hidden edit mode in history page
+- [ ] **Canvas sizing** - Make generated images fit container properly
+- [ ] **Performance benchmarking** - Add performance metrics
+- [ ] **Security testing** - Add security test suite
+
+### v1.2 (Planned)
+
+- [ ] **Diffusion-only mode** - Option to return only diffusion image without quantization
+
+### v1.3 (Planned)
+
+- [ ] **Manual Canvas Editing** - Click-to-draw pixel art editor
+
+### Future Versions
+
 - [ ] **CivitAI integration** — Download models directly
 - [ ] **ControlNet** — Image-to-image with control
 - [ ] **Training UI** — Fine-tune LoRAs
 - [ ] **Batch generation** — Generate multiple variants
 - [ ] **Sprite sheets** — Multi-frame output
 - [ ] **WebSocket** — More efficient real-time than SSE (if agent needs bidirectional chat)
+- [ ] **Model management UI** — Web interface for model/LoRA management
 
 ---
 

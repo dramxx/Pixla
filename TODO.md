@@ -1,15 +1,10 @@
 v1.1
 
-- UI rework standard sidebar and main screen layout, with controls in sidebar on left and generated image / generation status info on right.
-- progress bar
-- make generated img fit the container size
-- Implement performance benchmarking
-- Add security testing suite
+- progress status during generation
+- downloaded png is very small and not transparent background
+- edit mode is hidden in history and not really working. we need to be able to iterate in main generation window, history is just table
+- would be interesting to compare diffusion image vs pixelart image
 
 v1.2
 
-- Have mode where app returns diffusion image only
-
-v1.3
-
-- Manual Canvas Editing. Allow users to click on the canvas in the UI to draw/edit pixels manually, similar to traditional pixel art editors
+- manual canvas editing. allow user to click on the canvas in the UI to draw/edit pixels manually, similar to traditional pixel art editors

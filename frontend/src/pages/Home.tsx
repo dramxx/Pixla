@@ -4,35 +4,17 @@ import { ControlPanel } from "@/components/ControlPanel";
 import { Canvas } from "@/components/Canvas";
 import { usePalettesStore } from "@/store/palettes";
 import { useGenerationsStore } from "@/store/generations";
-import { useModelsStore } from "@/store/models";
 import { generationsApi } from "@/lib/api";
 
 export function Home() {
-  const { palettes, fetchPalettes, currentPalette } = usePalettesStore();
+  const { fetchPalettes, currentPalette } = usePalettesStore();
   const { currentGeneration, fetchGenerations, isGenerating, getGeneration } =
     useGenerationsStore();
-  const {
-    models,
-    loras,
-    currentModel,
-    currentLoras,
-    fetchModels,
-    fetchLoras,
-    setCurrentModel,
-    toggleLora,
-    setLoraScale,
-  } = useModelsStore();
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState<string>("");
-  const [showLoraSettings, setShowLoraSettings] = useState(false);
-  const [numInferenceSteps, setNumInferenceSteps] = useState(25);
-  const [guidanceScale, setGuidanceScale] = useState(8.0);
 
   useEffect(() => {
     fetchPalettes();
     fetchGenerations();
-    fetchModels();
-    fetchLoras();
   }, []);
 
   useEffect(() => {
@@ -67,12 +49,6 @@ export function Home() {
     }
   }, [currentGeneration?.id]);
 
-  useEffect(() => {
-    if (currentGeneration?.image_path) {
-      setPreviewUrl(`/api/generations/${currentGeneration.id}/download`);
-    }
-  }, [currentGeneration?.image_path]);
-
   const canGenerate = currentPalette && !isGenerating;
   const hasResult =
     currentGeneration?.status === "complete" && currentGeneration?.image_path;
@@ -96,20 +72,20 @@ export function Home() {
       </div>
 
       {/* Main Content - Canvas Display */}
-      <div className="flex-1 flex flex-col bg-primary p-6" style={{ backgroundImage: 'linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px)', backgroundSize: '25px 25px', backgroundColor: 'var(--bg-primary)' }}>
+      <div className="flex-1 flex flex-col bg-primary p-6 overflow-hidden" style={{ backgroundImage: 'linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px)', backgroundSize: '25px 25px', backgroundColor: 'var(--bg-primary)' }}>
         {/* Download Button */}
         <button
           onClick={handleDownload}
           disabled={!hasResult}
           className={hasResult ? "btn btn-primary mb-4" : "btn btn-secondary mb-4"}
-          style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem', alignSelf: 'flex-end' }}
+          style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem', alignSelf: 'flex-end', flex: 'none' }}
         >
           <Download className="w-4 h-4" />
           Download PNG
         </button>
 
         {/* Canvas Content */}
-        <div className="flex-1 flex items-center justify-center rounded-lg" style={{ backgroundColor: 'transparent' }}>
+        <div className="flex-1 flex items-center justify-center rounded-lg overflow-hidden" style={{ backgroundColor: 'transparent', minHeight: 0 }}>
           {isGenerating ? (
             <div className="flex flex-col items-center gap-4">
               <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -122,7 +98,6 @@ export function Home() {
               pixelData={currentGeneration.pixel_data}
               palette={currentPalette?.colors || []}
               size={currentGeneration.size || 16}
-              scale={24}
             />
           ) : canGenerate ? (
             <div />
