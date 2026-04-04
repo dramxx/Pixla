@@ -1,6 +1,6 @@
 # Pixla
 
-A pixel art generator that paints pixel by pixel using AI.
+A pixel art generator that paints pixel by pixel, so you dont have to.
 
 ![alt text](image-1.png)
 
@@ -12,7 +12,7 @@ Pixla builds pixel art **pixel by pixel**:
 
 1. You enter a prompt
 2. Pixla generates a **reference image** using diffusion model
-3. Pixla looks at the sketch and decides: "I need to place a pixel here, and here, and here..."
+3. Pixla (acually credit goes to your LLM) looks at the sketch and decides: "I need to place a pixel here, and here, and here..."
 4. It uses drawing tools: draw lines, fill rectangles, add noise, draw circles
 5. Each "move" is intentional — like a human pixel artist working
 
