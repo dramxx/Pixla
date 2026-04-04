@@ -45,6 +45,14 @@ class Database:
                 )
             """)
             conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_generations_status 
+                ON generations(status)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_generations_created_at 
+                ON generations(created_at DESC)
+            """)
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS generation_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     generation_id INTEGER NOT NULL,

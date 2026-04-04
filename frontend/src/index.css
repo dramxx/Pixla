@@ -1,67 +1,37 @@
-/* Dark theme (Palenight) */
-:root, .theme-dark {
-  --bg-primary: #1e1e2e;
-  --bg-secondary: #252537;
-  --bg-tertiary: #2d2d44;
-  --bg-hover: #363652;
-  
-  --text-primary: #e4e4e7;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  
-  --accent: #bb9af7;
-  --accent-hover: #c4a7f7;
-  --accent-subtle: #bb9af720;
-  
-  --border: #3d3d5c;
-  --border-light: #4a4a6a;
-  
-  --success: #9ece6a;
-  --warning: #e0af68;
-  --error: #f7768e;
-  
-  --cyan: #7dcfff;
-  --green: #9ece6a;
-  --orange: #ff9e64;
-  --pink: #f176c5;
-  --purple: #bb9af7;
-  --red: #f7768e;
-  --yellow: #e0af68;
-  --blue: #7aa2f7;
+/* Theme variables */
+@import "./theme.css";
 
-  --radius: 8px;
+/* Status indicator */
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background-color: var(--bg-tertiary);
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
 }
 
-/* Light theme */
-.theme-light {
-  --bg-primary: #f8f8fc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f0f0f5;
-  --bg-hover: #e8e8f0;
-  
-  --text-primary: #1a1a2e;
-  --text-secondary: #4a4a5e;
-  --text-muted: #7a7a8e;
-  
-  --accent: #7c3aed;
-  --accent-hover: #6d28d9;
-  --accent-subtle: #7c3aed20;
-  
-  --border: #e0e0ea;
-  --border-light: #d0d0dc;
-  
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  
-  --cyan: #0ea5e9;
-  --green: #22c55e;
-  --orange: #f97316;
-  --pink: #ec4899;
-  --purple: #7c3aed;
-  --red: #ef4444;
-  --yellow: #eab308;
-  --blue: #3b82f6;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.success {
+  background-color: var(--success);
+}
+
+.status-dot.error {
+  background-color: var(--error);
+}
+
+.status-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 * {

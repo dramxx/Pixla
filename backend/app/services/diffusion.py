@@ -1,6 +1,7 @@
 import torch
 from PIL import Image
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from app.services.constants import DIFFUSION_TYPE_PROMPTS, NEGATIVE_PROMPT
 
@@ -8,7 +9,7 @@ from app.services.constants import DIFFUSION_TYPE_PROMPTS, NEGATIVE_PROMPT
 class DiffusionService:
     def __init__(
         self,
-        model_id: str = "runwayml/stable-diffusion-v1-5",
+        model_id: str,
         device: str = "cuda",
         dtype: str = "float16",
     ):
@@ -24,10 +25,25 @@ class DiffusionService:
         print(f"Loading model {self.model_id} on {self.device}...")
 
         try:
-            self._pipeline = StableDiffusionPipeline.from_pretrained(
-                self.model_id,
-                torch_dtype=self.dtype,
-            )
+            model_path = Path(self.model_id)
+
+            if model_path.exists():
+                if model_path.suffix in {".safetensors", ".ckpt", ".pt", ".pth"}:
+                    self._pipeline = StableDiffusionPipeline.from_single_file(
+                        str(model_path),
+                        torch_dtype=self.dtype,
+                    )
+                else:
+                    self._pipeline = StableDiffusionPipeline.from_pretrained(
+                        str(model_path),
+                        torch_dtype=self.dtype,
+                    )
+            else:
+                raise ValueError(
+                    f"Model not found at {self.model_id}. "
+                    "Please place model files in storage/models/ folder."
+                )
+
             self._pipeline = self._pipeline.to(self.device)
             self._pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
                 self._pipeline.scheduler.config
@@ -38,6 +54,47 @@ class DiffusionService:
         except Exception as e:
             print(f"Error loading model: {e}")
             raise
+
+    def load_loras(self, loras: List[dict]):
+        """Load LoRAs into the pipeline with proper scale handling.
+
+        Args:
+            loras: List of dicts with 'path' and 'scale' keys
+        """
+        if not loras or self._pipeline is None:
+            return
+
+        self._pipeline.disable_lora()
+
+        adapter_paths = []
+        adapter_scales = []
+
+        for lora in loras:
+            lora_path = lora.get("path", "")
+            scale = lora.get("scale", 1.0)
+
+            if not lora_path:
+                continue
+
+            lora_path_obj = Path(lora_path)
+            if not lora_path_obj.exists():
+                print(f"Warning: LoRA not found at {lora_path}")
+                continue
+
+            try:
+                self._pipeline.load_lora_weights(
+                    str(lora_path_obj),
+                    adapter_name=lora_path_obj.stem,
+                )
+                adapter_paths.append(lora_path_obj.stem)
+                adapter_scales.append(scale)
+                print(f"Loaded LoRA: {lora_path_obj.name} (scale={scale})")
+            except Exception as e:
+                print(f"Warning: Failed to load LoRA {lora_path}: {e}")
+
+        if adapter_paths:
+            self._pipeline.set_adapters(adapter_paths, adapter_weights=adapter_scales)
+            print(f"Applied LoRA scales: {dict(zip(adapter_paths, adapter_scales))}")
 
     def generate(
         self,
@@ -73,18 +130,29 @@ class DiffusionService:
         prompt: str,
         sprite_type: str = "block",
         size: int = 512,
+        loras: Optional[List[dict]] = None,
+        num_inference_steps: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
     ) -> Image.Image:
+        self._load_model()
+
+        if loras:
+            self.load_loras(loras)
+
         enhanced_prompt = (
             f"{prompt}. {DIFFUSION_TYPE_PROMPTS.get(sprite_type, DIFFUSION_TYPE_PROMPTS['block'])}"
         )
+
+        steps = num_inference_steps if num_inference_steps is not None else 25
+        guidance = guidance_scale if guidance_scale is not None else 8.0
 
         return self.generate(
             prompt=enhanced_prompt,
             negative_prompt=NEGATIVE_PROMPT,
             width=size,
             height=size,
-            num_inference_steps=25,
-            guidance_scale=8.0,
+            num_inference_steps=steps,
+            guidance_scale=guidance,
         )
 
     def unload(self):
@@ -98,16 +166,36 @@ class DiffusionService:
 _diffusion_instance: Optional[DiffusionService] = None
 
 
-def get_diffusion() -> DiffusionService:
+def get_diffusion(model_id: Optional[str] = None) -> DiffusionService:
     global _diffusion_instance
+
+    effective_model_id = model_id
+    if effective_model_id is None:
+        from app.config import get_settings
+
+        settings = get_settings()
+        effective_model_id = settings.model_id
+
+    if effective_model_id is None:
+        raise ValueError(
+            "No model specified. Set MODEL_ID in .env or select a model from storage/models"
+        )
+
     if _diffusion_instance is None:
         from app.config import get_settings
 
         settings = get_settings()
         _diffusion_instance = DiffusionService(
-            model_id=settings.model_id,
+            model_id=effective_model_id,
             device=settings.model_device,
             dtype=settings.model_dtype,
+        )
+    if _diffusion_instance.model_id != effective_model_id:
+        _diffusion_instance.unload()
+        _diffusion_instance = DiffusionService(
+            model_id=effective_model_id,
+            device=_diffusion_instance.device,
+            dtype=str(_diffusion_instance.dtype).replace("torch.", ""),
         )
     return _diffusion_instance
 

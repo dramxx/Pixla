@@ -59,8 +59,3 @@ Consider https://civitai.com/models/165876/2d-pixel-toolkit-2d
 
 Install llama-server and run any LLM
 Consider https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/tree/main
-
-## TODOs
-
-- Manual Canvas Editing - Allow users to click on the canvas in the UI to draw/edit pixels manually, similar to traditional pixel art editors
-- UI rework

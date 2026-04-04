@@ -13,6 +13,8 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
   const [size, setSize] = useState(16);
   const [spriteType, setSpriteType] = useState("block");
   const [systemPrompt, setSystemPrompt] = useState("");
+  const [numInferenceSteps, setNumInferenceSteps] = useState(25);
+  const [guidanceScale, setGuidanceScale] = useState(8.0);
   const [showLoraSettings, setShowLoraSettings] = useState(false);
 
   const { palettes, currentPalette } = usePalettesStore();
@@ -27,6 +29,12 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
   const handleGenerate = async () => {
     if (!prompt.trim() || !currentPalette) return;
 
+    const loras = currentLoras.map((l) => ({
+      id: l.id,
+      path: l.path,
+      scale: l.scale,
+    }));
+
     try {
       await createGeneration({
         prompt: prompt.trim(),
@@ -34,7 +42,10 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
         size,
         sprite_type: spriteType,
         system_prompt: systemPrompt.trim() || undefined,
-        model: currentModel?.id,
+        model: currentModel?.path,
+        loras: loras.length > 0 ? loras : undefined,
+        num_inference_steps: numInferenceSteps,
+        guidance_scale: guidanceScale,
       });
     } catch (error) {
       console.error("Failed to generate:", error);
@@ -120,6 +131,34 @@ export function ControlPanel({ onDownload }: ControlPanelProps) {
             {currentModel?.description && (
               <p className="text-xs text-muted-foreground mt-1">{currentModel.description}</p>
             )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Steps</label>
+              <input
+                type="number"
+                value={numInferenceSteps}
+                onChange={(e) => setNumInferenceSteps(Number(e.target.value))}
+                min={1}
+                max={100}
+                className="w-full p-2 border border-input rounded-md bg-background"
+                disabled={isGenerating}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Guidance</label>
+              <input
+                type="number"
+                value={guidanceScale}
+                onChange={(e) => setGuidanceScale(Number(e.target.value))}
+                min={1}
+                max={20}
+                step={0.5}
+                className="w-full p-2 border border-input rounded-md bg-background"
+                disabled={isGenerating}
+              />
+            </div>
           </div>
 
           <div>

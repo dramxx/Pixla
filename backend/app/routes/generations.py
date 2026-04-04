@@ -9,7 +9,6 @@ import asyncio
 from pathlib import Path
 
 from app.models import GenerationStatus
-from app.services.diffusion import get_diffusion
 from app.services.quantization import quantize_image_to_palette, pixels_to_image
 from app.services.agent import get_agent, get_session, cleanup_session
 from app.services.autotile import generate_tileset
@@ -50,6 +49,9 @@ class CreateGenerationRequest(BaseModel):
     sprite_type: SpriteType = SpriteType.BLOCK
     system_prompt: Optional[str] = None
     model: Optional[str] = None
+    loras: Optional[List[dict]] = None
+    num_inference_steps: Optional[int] = None
+    guidance_scale: Optional[float] = None
     reference_only: bool = False
     use_agent: bool = True
 
@@ -105,14 +107,22 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
         reference_id = f"ref_{gen.id}_{uuid.uuid4().hex[:8]}.png"
         reference_path = references_dir / reference_id
 
-        diffusion = get_diffusion()
+        from app.services.diffusion import get_diffusion, unload_diffusion
+
+        diffusion = get_diffusion(req.model)
         reference = diffusion.generate_pixel_art_reference(
             prompt=req.prompt,
             sprite_type=req.sprite_type.value,
             size=512,
+            loras=req.loras,
+            num_inference_steps=req.num_inference_steps,
+            guidance_scale=req.guidance_scale,
         )
         reference.save(reference_path)
         db.update_generation_reference(gen.id, str(reference_path))
+
+        # Free GPU memory after generation
+        unload_diffusion()
 
         if req.reference_only:
             db.update_generation_status(gen.id, GenerationStatus.COMPLETE)
@@ -126,8 +136,12 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
                 agent = get_agent()
 
                 import base64
+                import io
 
-                ref_b64 = base64.b64encode(reference.read_bytes()).decode()
+                ref_bytes = io.BytesIO()
+                reference.save(ref_bytes, format="PNG")
+                ref_bytes.seek(0)
+                ref_b64 = base64.b64encode(ref_bytes.read()).decode()
 
                 system_prompt = f"""A reference concept image is provided. Match its shapes, colors, and composition as closely as possible in pixel art form.
 
@@ -235,6 +249,10 @@ async def download_generation(gen_id: int, request: Request):
     if not img_path.exists():
         raise HTTPException(404, "Image file not found")
 
+    storage_path = Path(request.app.state.storage_path).resolve()
+    if not img_path.resolve().is_relative_to(storage_path):
+        raise HTTPException(400, "Invalid path")
+
     def iter_file():
         with open(img_path, "rb") as f:
             while chunk := f.read(8192):
@@ -336,10 +354,14 @@ async def generate_tileset(gen_id: int, req: TilesetRequest, request: Request):
 @router.get("/generations/{gen_id}/tileset/{name}/{filename}")
 async def serve_tileset_file(gen_id: int, name: str, filename: str, request: Request):
     """Serve a tileset file."""
-    storage_path = Path(request.app.state.storage_path)
-    path = storage_path / "output" / "tilesets" / name / filename
-    if not path.exists():
+    storage_path = Path(request.app.state.storage_path).resolve()
+    path = (storage_path / "output" / "tilesets" / name / filename).resolve()
+
+    if not path.is_file():
         raise HTTPException(404)
+    if not path.is_relative_to(storage_path):
+        raise HTTPException(400, "Invalid path")
+
     return FileResponse(path, media_type="image/png")
 
 

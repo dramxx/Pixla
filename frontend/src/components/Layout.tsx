@@ -1,17 +1,22 @@
-import React from "react";
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Palette, History, Sun, Moon } from "lucide-react";
-import { useThemeStore } from "@/store/theme";
+import { Palette, History } from "lucide-react";
+import { useSystemStatusStore } from "@/store/status";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
-  const { isDark, toggle } = useThemeStore();
   const location = useLocation();
+  const { modelAvailable, llmAvailable, storageWritable, checkStatus } = useSystemStatusStore();
+
+  useEffect(() => {
+    checkStatus();
+  }, []);
 
   const isActive = (path: string) => location.pathname === path;
+  const isReady = modelAvailable && llmAvailable && storageWritable;
 
   return (
     <div className="min-h-screen bg-primary">
@@ -44,13 +49,10 @@ export function Layout({ children }: LayoutProps) {
               </Link>
             </div>
           </div>
-          <button
-            onClick={toggle}
-            className="theme-toggle"
-            aria-label="Toggle theme"
-          >
-            {isDark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <div className="status-indicator" title={`Model: ${modelAvailable ? 'OK' : 'Missing'} | LLM: ${llmAvailable ? 'OK' : 'Missing'} | Disk: ${storageWritable ? 'OK' : 'Error'}`}>
+            <span className={`status-dot ${isReady ? 'success' : 'error'}`}></span>
+            <span className="status-label">{isReady ? 'Ready' : 'Not Ready'}</span>
+          </div>
         </div>
       </nav>
       <main className="main">{children}</main>

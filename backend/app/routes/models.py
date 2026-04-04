@@ -28,13 +28,6 @@ async def get_model(model_id: str, request: Request):
     return model
 
 
-@router.get("/models/default", response_model=ModelConfig)
-async def get_default_model(request: Request):
-    """Get the default model."""
-    discovery = get_model_discovery(request.app.state.storage_path)
-    return discovery.get_default_model()
-
-
 @router.get("/loras", response_model=List[LoRAConfig])
 async def list_loras(request: Request):
     """List all available LoRAs (from storage/loras folder)."""
@@ -66,7 +59,6 @@ async def get_settings(request: Request):
         "system_prompt": settings.system_prompt or "",
         "models": discovery.list_models(),
         "loras": discovery.list_loras(),
-        "default_model": settings.model_id,
         "sprite_types": {
             "block": {"label": "Block (Tile)", "has_tileset": True},
             "icon": {"label": "Item Icon", "has_tileset": False},

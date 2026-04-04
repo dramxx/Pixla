@@ -1,0 +1,42 @@
+/* Pixla Theme - Light (Default) */
+/* Edit colors here to customize the theme */
+
+:root {
+  /* Backgrounds */
+  --bg-primary: #f8f8fc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f0f0f5;
+  --bg-hover: #e8e8f0;
+  
+  /* Text */
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a5e;
+  --text-muted: #7a7a8e;
+  
+  /* Accent */
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-subtle: #7c3aed20;
+  
+  /* Borders */
+  --border: #e0e0ea;
+  --border-light: #d0d0dc;
+  
+  /* Status */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  
+  /* Colors */
+  --cyan: #0ea5e9;
+  --green: #22c55e;
+  --orange: #f97316;
+  --pink: #ec4899;
+  --purple: #7c3aed;
+  --red: #ef4444;
+  --yellow: #eab308;
+  --blue: #3b82f6;
+  
+  /* Misc */
+  --radius: 8px;
+}

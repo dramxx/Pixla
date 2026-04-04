@@ -13,12 +13,10 @@ class Settings(BaseSettings):
     db_path: str = "./pixla.db"
     storage_path: str = "./storage"
 
-    # Diffusion model (for reference image generation)
-    model_id: str = "runwayml/stable-diffusion-v1-5"
+    # Diffusion model (must be set in .env or selected from discovered models)
+    model_id: Optional[str] = None
     model_device: str = "cuda"
     model_dtype: str = "float16"
-    model_default_steps: int = 20
-    model_default_guidance: float = 7.5
     reference_size: int = 512
 
     # Local LLM (for agent pixel drawing)
@@ -32,10 +30,6 @@ class Settings(BaseSettings):
 
     # System prompt for agent
     system_prompt: Optional[str] = None
-
-    # API keys (optional fallback)
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
 
 
 @lru_cache

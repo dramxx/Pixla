@@ -29,10 +29,10 @@ export const useModelsStore = create<ModelsStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const models = await modelsApi.list();
-      const defaultModel = await modelsApi.getDefault();
+      const currentModel = models.length > 0 ? models[0] : null;
       set({ 
         models, 
-        currentModel: defaultModel,
+        currentModel,
         isLoading: false 
       });
     } catch (error) {

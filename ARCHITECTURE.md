@@ -10,9 +10,9 @@ This document explains the architecture of Pixla — how the components work tog
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                          User (Browser)                        │
+│                          User (Browser)                         │
 │                              │                                  │
-│                    HTTPS/WSS (HTTP API)                        │
+│                    HTTPS/WSS (HTTP API)                         │
 │                              │                                  │
 └───────────────────────────────▼─────────────────────────────────┘
                                       │
@@ -20,10 +20,10 @@ This document explains the architecture of Pixla — how the components work tog
                     │                                   │
                     ▼                                   ▼
            ┌─────────────────┐               ┌─────────────────┐
-           │   Frontend     │               │   Backend      │
-           │  (Vite+React)  │◄──────────────│  (FastAPI)     │
+           │   Frontend      │               │   Backend       │
+           │  (Vite+React)   │◄──────────────│  (FastAPI)      │
            └─────────────────┘               └────────┬────────┘
-                                                       │
+                                                      │
                     ┌─────────────────────────────────┼─────────┐
                     │                                 │         │
                     ▼                                 ▼         ▼
@@ -36,22 +36,22 @@ This document explains the architecture of Pixla — how the components work tog
                   ▼
         ┌────────────────────────┐
         │   Diffusion Service    │
-        │  - Generate images    │
-        │  - Apply LoRAs        │
-        │  - Quantize palette   │
+        │  - Generate images     │
+        │  - Apply LoRAs         │
+        │  - Quantize palette    │
         └────────────────────────┘
                   │
                   ▼
         ┌────────────────────────┐
-        │   Agent (Optional)     │
-        │  - Refine pixels      │
-        │  - Add details        │
+        │   LLM Agent            │
+        │  - Refine pixels       │
+        │  - Add details         │
         └────────────────────────┘
                   │
                   ▼
         ┌────────────────────────┐
-        │    Output Image       │
-        │    (PNG file)         │
+        │    Output Image        │
+        │    (PNG file)          │
         └────────────────────────┘
 ```
 
@@ -64,6 +64,7 @@ This document explains the architecture of Pixla — how the components work tog
 **Purpose**: User interface for configuring and running generations
 
 **Key Components**:
+
 - `App.tsx` — Main routing and layout
 - `Canvas.tsx` — Pixel art display and editing
 - `ControlPanel.tsx` — Generation configuration
@@ -71,11 +72,13 @@ This document explains the architecture of Pixla — how the components work tog
 - `PaletteManager.tsx` — Color palette CRUD
 
 **State Management**:
+
 - Zustand stores for UI state
 - API client for backend communication
 - SSE (Server-Sent Events) for real-time updates
 
 **API Communication**:
+
 ```typescript
 // Frontend → Backend examples
 GET  /api/palettes           // List palettes
@@ -91,6 +94,7 @@ POST /api/models            // Upload new model
 **Purpose**: API server, AI inference orchestration, data management
 
 **Structure**:
+
 ```
 backend/
 ├── app/
@@ -119,11 +123,13 @@ backend/
 **Purpose**: Discover models and LoRAs from storage folders
 
 **How it works**:
+
 - User downloads models/LoRAs to `storage/models/` and `storage/loras/`
 - App scans folders and reads `config.json` if present
 - Returns list of available models for frontend selection
 
 **Folder Structure**:
+
 ```
 storage/
 ├── models/                    # User-downloaded diffusion models
@@ -142,6 +148,7 @@ storage/
 **Purpose**: Generate images from text prompts using local models
 
 **Workflow**:
+
 1. Receive prompt + config
 2. Build enhanced prompt (sprite-type specific)
 3. Load model (if not cached)
@@ -149,11 +156,12 @@ storage/
 5. Return PIL Image
 
 **Key Code**:
+
 ```python
 def generate(self, prompt: str, config: GenerationConfig) -> Image:
     # Sprite-type prompt enhancement
     enhanced = enhance_prompt(prompt, config.sprite_type)
-    
+
     # Run diffusion
     result = self.pipeline(
         prompt=enhanced,
@@ -161,7 +169,7 @@ def generate(self, prompt: str, config: GenerationConfig) -> Image:
         num_inference_steps=config.steps,
         guidance_scale=config.guidance_scale,
     )
-    
+
     return result.images[0]
 ```
 
@@ -170,11 +178,13 @@ def generate(self, prompt: str, config: GenerationConfig) -> Image:
 **Purpose**: Convert full-color diffusion output to limited palette pixel art
 
 **Algorithms**:
+
 - **Nearest neighbor**: Simple, fast, lower quality
 - **Floyd-Steinberg dithering**: Better quality, artistic
 - **Ordered dithering**: Faster than Floyd-Steinberg
 
 **Process**:
+
 ```
 Diffusion Output (RGBA)  →  Resize to target (e.g., 16x16)
                                     ↓
@@ -190,11 +200,13 @@ Diffusion Output (RGBA)  →  Resize to target (e.g., 16x16)
 **Purpose**: Use LLM to refine and add details to quantized pixels
 
 **Why Optional**:
+
 - Diffusion → Quantization often produces good results
 - Agent adds latency (LLM calls)
 - For simple sprites, skip agent
 
 **Workflow**:
+
 ```
 Initial Pixels + Prompt + Palette + Tools
         ↓
@@ -211,6 +223,7 @@ Initial Pixels + Prompt + Palette + Tools
 **Purpose**: Store palettes, generations, configs
 
 **Schema**:
+
 ```sql
 CREATE TABLE palettes (
     id INTEGER PRIMARY KEY,
@@ -295,12 +308,12 @@ async def stream_generation(id: int, request: Request):
             # Check for updates (from generation process)
             gen = db.get_generation(id)
             yield f"data: {json.dumps(gen)}\n\n"
-            
+
             if gen.status in ["complete", "error"]:
                 break
-            
+
             await asyncio.sleep(0.5)
-    
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 ```
 
@@ -396,11 +409,11 @@ ANTHROPIC_API_KEY=
 
 ### Hardware Requirements
 
-| Setup | GPU | RAM | Storage | Speed |
-|-------|-----|-----|---------|-------|
-| Minimum | GTX 1060 6GB | 16GB | 10GB | 30-60s |
-| Recommended | RTX 3070 8GB | 32GB | 50GB | 10-30s |
-| Production | RTX 4090 24GB | 64GB | 100GB | 5-15s |
+| Setup       | GPU           | RAM  | Storage | Speed  |
+| ----------- | ------------- | ---- | ------- | ------ |
+| Minimum     | GTX 1060 6GB  | 16GB | 10GB    | 30-60s |
+| Recommended | RTX 3070 8GB  | 32GB | 50GB    | 10-30s |
+| Production  | RTX 4090 24GB | 64GB | 100GB   | 5-15s  |
 
 ---
 
@@ -445,7 +458,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0"]
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
+version: "3.8"
 services:
   backend:
     build: .
@@ -454,7 +467,7 @@ services:
     volumes:
       - ./storage:/app/storage
     environment:
-      - MODEL_DEVICE=cuda  # if GPU available
+      - MODEL_DEVICE=cuda # if GPU available
 ```
 
 ---
