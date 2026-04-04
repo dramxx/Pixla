@@ -2,7 +2,7 @@
 
 A pixel art generator that paints pixel by pixel using AI.
 
-## ![alt text](image.png)
+![alt text](image-1.png)
 
 ## How It Works (Simple Version)
 
