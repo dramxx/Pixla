@@ -9,14 +9,13 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
-  const { modelAvailable, llmAvailable, storageWritable, checkStatus } = useSystemStatusStore();
+  const { isReady, checkStatus } = useSystemStatusStore();
 
   useEffect(() => {
     checkStatus();
   }, []);
 
   const isActive = (path: string) => location.pathname === path;
-  const isReady = modelAvailable && llmAvailable && storageWritable;
 
   return (
     <div className="min-h-screen bg-primary">
@@ -49,7 +48,7 @@ export function Layout({ children }: LayoutProps) {
               </Link>
             </div>
           </div>
-          <div className="status-indicator" title={`Model: ${modelAvailable ? 'OK' : 'Missing'} | LLM: ${llmAvailable ? 'OK' : 'Missing'} | Disk: ${storageWritable ? 'OK' : 'Error'}`}>
+          <div className="status-indicator" title="Check model and LLM availability">
             <span className={`status-dot ${isReady ? 'success' : 'error'}`}></span>
             <span className="status-label">{isReady ? 'Ready' : 'Not Ready'}</span>
           </div>

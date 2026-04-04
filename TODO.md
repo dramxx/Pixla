@@ -8,4 +8,8 @@ v1.1
 
 v1.2
 
+- Have mode where app returns diffusion image only
+
+v1.3
+
 - Manual Canvas Editing. Allow users to click on the canvas in the UI to draw/edit pixels manually, similar to traditional pixel art editors

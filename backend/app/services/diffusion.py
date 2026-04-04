@@ -1,9 +1,12 @@
+import logging
 import torch
 from PIL import Image
 from pathlib import Path
 from typing import Optional, List
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from app.services.constants import DIFFUSION_TYPE_PROMPTS, NEGATIVE_PROMPT
+
+logging.getLogger("diffusers").setLevel(logging.ERROR)
 
 
 class DiffusionService:
@@ -32,11 +35,15 @@ class DiffusionService:
                     self._pipeline = StableDiffusionPipeline.from_single_file(
                         str(model_path),
                         torch_dtype=self.dtype,
+                        safety_checker=None,
+                        feature_extractor=None,
                     )
                 else:
                     self._pipeline = StableDiffusionPipeline.from_pretrained(
                         str(model_path),
                         torch_dtype=self.dtype,
+                        safety_checker=None,
+                        feature_extractor=None,
                     )
             else:
                 raise ValueError(
