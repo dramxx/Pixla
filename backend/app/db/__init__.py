@@ -73,21 +73,118 @@ class Database:
                 self._create_default_palette(conn)
 
     def _create_default_palette(self, conn):
-        default_colors = [
-            "#000000",
-            "#FFFFFF",
-            "#8B4513",
-            "#C0C0C0",
-            "#FF0000",
-            "#00FF00",
-            "#0000FF",
-            "#FFFF00",
+        palettes = [
+            (
+                "Basic",
+                [
+                    "#000000",
+                    "#FFFFFF",
+                    "#8B4513",
+                    "#C0C0C0",
+                    "#FF0000",
+                    "#00FF00",
+                    "#0000FF",
+                    "#FFFF00",
+                ],
+            ),
+            (
+                "Iron",
+                [
+                    "#1a1a1a",
+                    "#2d2d2d",
+                    "#4a4a4a",
+                    "#6b6b6b",
+                    "#8c8c8c",
+                    "#b3b3b3",
+                    "#d4d4d4",
+                    "#f0f0f0",
+                ],
+            ),
+            (
+                "Forest",
+                [
+                    "#1a2f1a",
+                    "#2d4a2d",
+                    "#3d5c3d",
+                    "#4a6b4a",
+                    "#5c7a5c",
+                    "#6e8c6e",
+                    "#8fad8f",
+                    "#a5c4a5",
+                ],
+            ),
+            (
+                "Dungeon",
+                [
+                    "#1a1a2e",
+                    "#2d2d44",
+                    "#3d3d5c",
+                    "#4a4a6b",
+                    "#5c5c7a",
+                    "#6e6e8c",
+                    "#8f8fa5",
+                    "#a5a5bc",
+                ],
+            ),
+            (
+                "Ocean",
+                [
+                    "#0a1a2e",
+                    "#142d44",
+                    "#1e3d5c",
+                    "#284a6b",
+                    "#32577a",
+                    "#3d668c",
+                    "#527fa5",
+                    "#6e91b3",
+                ],
+            ),
+            (
+                "Fire",
+                [
+                    "#1a0a0a",
+                    "#2d1414",
+                    "#3d1e1e",
+                    "#4a2828",
+                    "#5c3232",
+                    "#6e3d3d",
+                    "#8f4a4a",
+                    "#a55555",
+                ],
+            ),
+            (
+                "Gold",
+                [
+                    "#1a1400",
+                    "#2d2100",
+                    "#3d2d00",
+                    "#4a3a00",
+                    "#5c4700",
+                    "#6e5400",
+                    "#8f6a00",
+                    "#a57d00",
+                ],
+            ),
+            (
+                "Magic",
+                [
+                    "#1a0a2e",
+                    "#2d1444",
+                    "#3d1e5c",
+                    "#4a286b",
+                    "#5c327a",
+                    "#6e3d8c",
+                    "#8f4aa5",
+                    "#a555bc",
+                ],
+            ),
         ]
         now = datetime.utcnow().isoformat()
-        conn.execute(
-            "INSERT INTO palettes (name, colors, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            ("Default", json.dumps(default_colors), now, now),
-        )
+        for name, colors in palettes:
+            conn.execute(
+                "INSERT INTO palettes (name, colors, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (name, json.dumps(colors), now, now),
+            )
         conn.commit()
 
     @contextmanager

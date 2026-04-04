@@ -1,42 +1,41 @@
-/* Pixla Theme - Light (Default) */
-/* Edit colors here to customize the theme */
-
 :root {
-  /* Backgrounds */
-  --bg-primary: #f8f8fc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f0f0f5;
-  --bg-hover: #e8e8f0;
-  
+  /* Backgrounds - Dark Purple Opencode Theme */
+  --bg-primary: #0f0e17;
+  --bg-secondary: #1a1825;
+  --bg-tertiary: #252334;
+  --bg-hover: #302d42;
+
   /* Text */
-  --text-primary: #1a1a2e;
-  --text-secondary: #4a4a5e;
-  --text-muted: #7a7a8e;
-  
-  /* Accent */
-  --accent: #7c3aed;
-  --accent-hover: #6d28d9;
-  --accent-subtle: #7c3aed20;
-  
+  --text-primary: #fffffe;
+  --text-secondary: #a7a9be;
+  --text-muted: #5f6178;
+
+  /* Accent - Purple/Violet */
+  --accent: #7f5af0;
+  --accent-hover: #6246ea;
+  --accent-subtle: #7f5af033;
+  --accent-text: lightgray;
+
   /* Borders */
-  --border: #e0e0ea;
-  --border-light: #d0d0dc;
-  
+  --border: #373453;
+  --border-light: #2d2a42;
+  --grid: #1a1825;
+
   /* Status */
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  
+  --success: #2cb67d;
+  --warning: #ff8906;
+  --error: #ef4565;
+
   /* Colors */
-  --cyan: #0ea5e9;
-  --green: #22c55e;
-  --orange: #f97316;
-  --pink: #ec4899;
-  --purple: #7c3aed;
-  --red: #ef4444;
-  --yellow: #eab308;
-  --blue: #3b82f6;
-  
+  --cyan: #2cb67d;
+  --green: #2cb67d;
+  --orange: #ff8906;
+  --pink: #ff0080;
+  --purple: #7f5af0;
+  --red: #ef4565;
+  --yellow: #ff8906;
+  --blue: #3da9fc;
+
   /* Misc */
   --radius: 8px;
 }

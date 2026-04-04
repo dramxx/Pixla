@@ -56,6 +56,9 @@ async def update_palette(palette_id: int, req: CreatePaletteRequest, request: Re
 @router.delete("/palettes/{palette_id}")
 async def delete_palette(palette_id: int, request: Request):
     db = request.app.state.db
+    palettes = db.list_palettes()
+    if len(palettes) <= 1:
+        raise HTTPException(400, "Cannot delete the last palette")
     if not db.delete_palette(palette_id):
         raise HTTPException(404, "Palette not found")
     return {"success": True}
