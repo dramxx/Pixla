@@ -67,6 +67,14 @@ export function ControlPanel() {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.ctrlKey && e.key === "Enter") {
+                e.preventDefault();
+                if (prompt.trim() && currentPalette && !isGenerating) {
+                  handleGenerate();
+                }
+              }
+            }}
             placeholder="a medieval iron sword with wooden handle..."
             rows={3}
             className="input textarea"

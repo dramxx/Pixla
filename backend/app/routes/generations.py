@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, field_validator
+from PIL import Image
 from typing import Optional, List
 from enum import Enum
 import json
@@ -9,7 +10,7 @@ import asyncio
 from pathlib import Path
 
 from app.models import GenerationStatus
-from app.services.quantization import quantize_image_to_palette, pixels_to_image
+from app.services.quantization import quantize_image_to_palette, pixels_to_image, detect_background
 from app.services.agent import get_agent, get_session, cleanup_session
 from app.services.autotile import generate_tileset
 
@@ -162,6 +163,8 @@ Reference image (base64 PNG): data:image/png;base64,{ref_b64}
                 )
 
                 pixel_data = canvas.pixels
+                # Detect and mark background as transparent
+                pixel_data = detect_background(pixel_data)
                 iterations = 40
 
             except Exception as e:
@@ -170,17 +173,25 @@ Reference image (base64 PNG): data:image/png;base64,{ref_b64}
                 )
                 print(f"Agent failed, falling back to quantization: {e}")
                 pixel_data = quantize_image_to_palette(reference, req.colors, req.size, dither=True)
+                pixel_data = detect_background(pixel_data)
                 iterations = 1
         else:
             pixel_data = quantize_image_to_palette(reference, req.colors, req.size, dither=True)
+            pixel_data = detect_background(pixel_data)
             iterations = 1
 
         db.update_generation_pixels(gen.id, pixel_data, iterations)
 
         img = pixels_to_image(pixel_data, req.colors)
+
+        # Scale up for download (pixel art should be viewable at desktop resolution)
+        scale = 8
+        scaled_size = req.size * scale
+        img = img.resize((scaled_size, scaled_size), Image.NEAREST)
+
         output_dir = storage_path / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
-        image_id = f"gen_{gen.id}_{req.size}x{req.size}.png"
+        image_id = f"gen_{gen.id}_{scaled_size}x{scaled_size}.png"
         img.save(output_dir / image_id)
 
         db.update_generation_image(gen.id, str(output_dir / image_id))

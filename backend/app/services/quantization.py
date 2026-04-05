@@ -31,19 +31,35 @@ def quantize_image_to_palette(
     palette: list[str],
     target_size: int,
     dither: bool = False,
+    detect_transparency: bool = True,
 ) -> list[list[int]]:
+    # Resize to target size first
     img = image.resize((target_size, target_size), Image.NEAREST if not dither else Image.LANCZOS)
-    img = img.convert("RGB")
+    img = img.convert("RGBA")  # Need RGBA to detect transparency
     img_array = np.array(img)
 
+    h, w = img_array.shape[:2]
+    has_alpha = img_array.shape[2] == 4
+
+    # First pass: quantize to palette
     pixel_data = []
     for y in range(target_size):
         row = []
         for x in range(target_size):
-            pixel_rgb = tuple(img_array[y, x])
-            closest = closest_palette_color(pixel_rgb, palette)
-            row.append(closest)
+            pixel = img_array[y, x]
+
+            if has_alpha and pixel[3] < 128:
+                row.append(-1)  # Transparent pixel (alpha=0)
+            else:
+                pixel_rgb = tuple(pixel[:3])
+                closest = closest_palette_color(pixel_rgb, palette)
+                row.append(closest)
         pixel_data.append(row)
+
+    # Second pass: detect background via flood-fill from corners
+    # Only mark as transparent if corner pixels are uniform and connected
+    if detect_transparency:
+        pixel_data = detect_background(pixel_data)
 
     return pixel_data
 
@@ -87,6 +103,45 @@ def apply_dithering(
                     img_array[y + 1, x + 1] = np.clip(
                         img_array[y + 1, x + 1] + error * 1 / 16, 0, 255
                     )
+
+    return pixel_data
+
+
+def detect_background(pixel_data: list[list[int]]) -> list[list[int]]:
+    """Detect and mark background as transparent via flood-fill from corners."""
+    h = len(pixel_data)
+    w = len(pixel_data[0]) if h > 0 else 0
+    if w == 0 or h == 0:
+        return pixel_data
+
+    # Get corner colors
+    corner_colors = set()
+    for corner in [(0, 0), (0, w - 1), (h - 1, 0), (h - 1, w - 1)]:
+        corner_colors.add(pixel_data[corner[0]][corner[1]])
+
+    # If all corners same color, flood-fill from corners to find background
+    if len(corner_colors) == 1:
+        bg_color = list(corner_colors)[0]
+        if bg_color >= 0:  # Valid palette index
+            # Flood-fill from all corners
+            visited = set()
+            stack = [(0, 0), (0, w - 1), (h - 1, 0), (h - 1, w - 1)]
+
+            while stack:
+                y, x = stack.pop()
+                if (y, x) in visited:
+                    continue
+                if y < 0 or y >= h or x < 0 or x >= w:
+                    continue
+                if pixel_data[y][x] != bg_color:
+                    continue
+
+                visited.add((y, x))
+                stack.extend([(y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)])
+
+            # Mark all visited (background) as -1
+            for y, x in visited:
+                pixel_data[y][x] = -1
 
     return pixel_data
 
