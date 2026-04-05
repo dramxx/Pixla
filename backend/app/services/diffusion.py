@@ -8,7 +8,9 @@ from app.services.constants import (
     DIFFUSION_TYPE_PROMPTS,
     NEGATIVE_PROMPT,
     RESOLUTION_HINTS,
+    RESOLUTION_HINTS_DEFAULT,
     RESOLUTION_NEGATIVE_PROMPTS,
+    RESOLUTION_NEGATIVE_PROMPTS_DEFAULT,
 )
 from app.utils.logging import diffusion_logger, log_operation
 
@@ -102,7 +104,7 @@ class DiffusionService:
 
             lora_path_obj = Path(lora_path)
             if not lora_path_obj.exists():
-                print(f"Warning: LoRA not found at {lora_path}")
+                diffusion_logger.warning(f"LoRA not found at {lora_path}")
                 continue
 
             try:
@@ -112,13 +114,15 @@ class DiffusionService:
                 )
                 adapter_paths.append(lora_path_obj.stem)
                 adapter_scales.append(scale)
-                print(f"Loaded LoRA: {lora_path_obj.name} (scale={scale})")
+                diffusion_logger.info(f"Loaded LoRA: {lora_path_obj.name} (scale={scale})")
             except Exception as e:
-                print(f"Warning: Failed to load LoRA {lora_path}: {e}")
+                diffusion_logger.warning(f"Failed to load LoRA {lora_path}: {e}")
 
         if adapter_paths:
             self._pipeline.set_adapters(adapter_paths, adapter_weights=adapter_scales)
-            print(f"Applied LoRA scales: {dict(zip(adapter_paths, adapter_scales))}")
+            diffusion_logger.info(
+                f"Applied LoRA scales: {dict(zip(adapter_paths, adapter_scales))}"
+            )
 
     def generate(
         self,
@@ -177,23 +181,30 @@ class DiffusionService:
         if loras:
             self.load_loras(loras)
 
-        enhanced_prompt = (
-            f"{prompt}. {DIFFUSION_TYPE_PROMPTS.get(sprite_type, DIFFUSION_TYPE_PROMPTS['block'])}"
-        )
+        type_prompt = DIFFUSION_TYPE_PROMPTS.get(sprite_type)
+        if type_prompt is None:
+            log_operation(
+                diffusion_logger,
+                "Unknown sprite_type, using fallback",
+                details=f"sprite_type={sprite_type}, defaulting to block",
+            )
+            type_prompt = DIFFUSION_TYPE_PROMPTS["block"]
 
-        # Add resolution-specific hints
-        res_hint = RESOLUTION_HINTS.get(target_size, "")
-        if res_hint:
-            enhanced_prompt = f"{enhanced_prompt}. {res_hint}"
+        enhanced_prompt = f"{prompt}. {type_prompt}"
+
+        # Add resolution-specific hints (with fallback for undefined sizes)
+        res_hint = RESOLUTION_HINTS.get(target_size, RESOLUTION_HINTS_DEFAULT)
+        enhanced_prompt = f"{enhanced_prompt}. {res_hint}"
 
         steps = num_inference_steps if num_inference_steps is not None else 25
         guidance = guidance_scale if guidance_scale is not None else 8.0
 
-        # Build negative prompt with resolution-specific additions
+        # Build negative prompt with resolution-specific additions (with fallback)
         negative_prompt = NEGATIVE_PROMPT
-        res_negative = RESOLUTION_NEGATIVE_PROMPTS.get(target_size, "")
-        if res_negative:
-            negative_prompt = f"{negative_prompt}, {res_negative}"
+        res_negative = RESOLUTION_NEGATIVE_PROMPTS.get(
+            target_size, RESOLUTION_NEGATIVE_PROMPTS_DEFAULT
+        )
+        negative_prompt = f"{negative_prompt}, {res_negative}"
 
         return self.generate(
             prompt=enhanced_prompt,

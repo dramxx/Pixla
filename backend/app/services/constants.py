@@ -27,6 +27,10 @@ RESOLUTION_HINTS = {
     128: "128x128 pixel art, high detail pixel art, clean lines, game-ready sprite",
 }
 
+# Fallback hint for sizes not defined above
+RESOLUTION_HINTS_DEFAULT = "pixel art sprite, clean edges, game-ready format, limited palette"
+
+
 # Resolution-specific negative prompts
 RESOLUTION_NEGATIVE_PROMPTS = {
     8: "smooth gradients, anti-aliasing, blurry, dithering, shading, realistic",
@@ -35,3 +39,6 @@ RESOLUTION_NEGATIVE_PROMPTS = {
     64: "blurry, photorealistic, smooth gradients",
     128: "blurry, photorealistic",
 }
+
+# Fallback negative prompt for sizes not defined above
+RESOLUTION_NEGATIVE_PROMPTS_DEFAULT = "blurry, photorealistic, smooth gradients"

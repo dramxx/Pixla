@@ -35,9 +35,15 @@ export const usePalettesStore = create<PalettesStore>((set, get) => ({
   },
 
   createPalette: async (data) => {
-    const palette = await palettesApi.create(data);
-    set((state) => ({ palettes: [palette, ...state.palettes] }));
-    return palette;
+    set({ error: null });
+    try {
+      const palette = await palettesApi.create(data);
+      set((state) => ({ palettes: [palette, ...state.palettes] }));
+      return palette;
+    } catch (error) {
+      set({ error: String(error) });
+      throw error;
+    }
   },
 
   updatePalette: async (id, data) => {

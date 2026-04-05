@@ -31,7 +31,14 @@ TOOLS:
 
 def build_system_prompt(prompt: str, palette: list[str], size: int, sprite_type: str) -> str:
     palette_desc = "\n".join(f"  {i}: {c}" for i, c in enumerate(palette))
-    type_hint = SPRITE_TYPE_HINTS.get(sprite_type, SPRITE_TYPE_HINTS["block"])
+    type_hint = SPRITE_TYPE_HINTS.get(sprite_type)
+    if type_hint is None:
+        log_operation(
+            agent_logger,
+            "Unknown sprite_type, using fallback",
+            details=f"sprite_type={sprite_type}, defaulting to block",
+        )
+        type_hint = SPRITE_TYPE_HINTS["block"]
 
     return f"""You are a pixel artist working on a {size}x{size} canvas.
 You have tools to draw pixels, fill rectangles, draw shapes, add texture, and view your work.
@@ -88,22 +95,23 @@ def parse_tool_calls(response: str) -> list[dict]:
     if output_match:
         response = output_match.group(1)
 
+    # More flexible patterns - allow whitespace around = and after commas
     tool_patterns = {
-        "draw_pixel": r"draw_pixel\(x=(\d+),\s*y=(\d+),\s*color=(-?\d+)\)",
-        "fill_rect": r"fill_rect\(x1=(\d+),\s*y1=(\d+),\s*x2=(\d+),\s*y2=(\d+),\s*color=(-?\d+)\)",
-        "fill_row": r"fill_row\(y=(\d+),\s*x_start=(\d+),\s*x_end=(\d+),\s*color=(-?\d+)\)",
-        "fill_column": r"fill_column\(x=(\d+),\s*y_start=(\d+),\s*y_end=(\d+),\s*color=(-?\d+)\)",
-        "draw_line": r"draw_line\(x1=(\d+),\s*y1=(\d+),\s*x2=(\d+),\s*y2=(\d+),\s*color=(-?\d+)\)",
-        "draw_circle": r"draw_circle\(cx=(\d+),\s*cy=(\d+),\s*radius=(\d+),\s*color=(-?\d+)(?:,\s*fill=(True|False))?\)",
-        "draw_ellipse": r"draw_ellipse\(cx=(\d+),\s*cy=(\d+),\s*rx=(\d+),\s*ry=(\d+),\s*color=(-?\d+)(?:,\s*fill=(True|False))?\)",
-        "draw_triangle": r"draw_triangle\(x1=(\d+),\s*y1=(\d+),\s*x2=(\d+),\s*y2=(\d+),\s*x3=(\d+),\s*y3=(\d+),\s*color=(-?\d+)\)",
-        "draw_rotated_rect": r"draw_rotated_rect\(cx=(\d+),\s*cy=(\d+),\s*width=(\d+),\s*height=(\d+),\s*angle=(-?\d+\.?\d*),\s*color=(-?\d+)\)",
-        "noise_fill_rect": r"noise_fill_rect\(x1=(\d+),\s*y1=(\d+),\s*x2=(\d+),\s*y2=(\d+),\s*colors=\[([\d,\s]+)\](?:,\s*seed=(\d+))?(?:,\s*scale=(\d+\.?\d*))?\)",
-        "noise_fill_circle": r"noise_fill_circle\(cx=(\d+),\s*cy=(\d+),\s*radius=(\d+),\s*colors=\[([\d,\s]+)\](?:,\s*seed=(\d+))?\)",
-        "voronoi_fill": r"voronoi_fill\(x1=(\d+),\s*y1=(\d+),\s*x2=(\d+),\s*y2=(\d+),\s*colors=\[([\d,\s]+)\](?:,\s*num_cells=(\d+))?(?:,\s*seed=(\d+))?\)",
-        "view_canvas": r"view_canvas\(\)",
-        "get_pixel": r"get_pixel\(x=(\d+),\s*y=(\d+)\)",
-        "finish": r"finish\(\)",
+        "draw_pixel": r"draw_pixel\(\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "fill_rect": r"fill_rect\(\s*x1\s*=\s*(\d+)\s*,\s*y1\s*=\s*(\d+)\s*,\s*x2\s*=\s*(\d+)\s*,\s*y2\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "fill_row": r"fill_row\(\s*y\s*=\s*(\d+)\s*,\s*x_start\s*=\s*(\d+)\s*,\s*x_end\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "fill_column": r"fill_column\(\s*x\s*=\s*(\d+)\s*,\s*y_start\s*=\s*(\d+)\s*,\s*y_end\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "draw_line": r"draw_line\(\s*x1\s*=\s*(\d+)\s*,\s*y1\s*=\s*(\d+)\s*,\s*x2\s*=\s*(\d+)\s*,\s*y2\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "draw_circle": r"draw_circle\(\s*cx\s*=\s*(\d+)\s*,\s*cy\s*=\s*(\d+)\s*,\s*radius\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)(?:\s*,\s*fill\s*=\s*(True|False))?\s*\)",
+        "draw_ellipse": r"draw_ellipse\(\s*cx\s*=\s*(\d+)\s*,\s*cy\s*=\s*(\d+)\s*,\s*rx\s*=\s*(\d+)\s*,\s*ry\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)(?:\s*,\s*fill\s*=\s*(True|False))?\s*\)",
+        "draw_triangle": r"draw_triangle\(\s*x1\s*=\s*(\d+)\s*,\s*y1\s*=\s*(\d+)\s*,\s*x2\s*=\s*(\d+)\s*,\s*y2\s*=\s*(\d+)\s*,\s*x3\s*=\s*(\d+)\s*,\s*y3\s*=\s*(\d+)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "draw_rotated_rect": r"draw_rotated_rect\(\s*cx\s*=\s*(\d+)\s*,\s*cy\s*=\s*(\d+)\s*,\s*width\s*=\s*(\d+)\s*,\s*height\s*=\s*(\d+)\s*,\s*angle\s*=\s*(-?\d+\.?\d*)\s*,\s*color\s*=\s*(-?\d+)\s*\)",
+        "noise_fill_rect": r"noise_fill_rect\(\s*x1\s*=\s*(\d+)\s*,\s*y1\s*=\s*(\d+)\s*,\s*x2\s*=\s*(\d+)\s*,\s*y2\s*=\s*(\d+)\s*,\s*colors\s*=\s*\[([\d,\s]+)\](?:\s*,\s*seed\s*=\s*(\d+))?(?:\s*,\s*scale\s*=\s*(\d+\.?\d*))?\s*\)",
+        "noise_fill_circle": r"noise_fill_circle\(\s*cx\s*=\s*(\d+)\s*,\s*cy\s*=\s*(\d+)\s*,\s*radius\s*=\s*(\d+)\s*,\s*colors\s*=\s*\[([\d,\s]+)\](?:\s*,\s*seed\s*=\s*(\d+))?\s*\)",
+        "voronoi_fill": r"voronoi_fill\(\s*x1\s*=\s*(\d+)\s*,\s*y1\s*=\s*(\d+)\s*,\s*x2\s*=\s*(\d+)\s*,\s*y2\s*=\s*(\d+)\s*,\s*colors\s*=\s*\[([\d,\s]+)\](?:\s*,\s*num_cells\s*=\s*(\d+))?(?:\s*,\s*seed\s*=\s*(\d+))?\s*\)",
+        "view_canvas": r"view_canvas\(\s*\)",
+        "get_pixel": r"get_pixel\(\s*x\s*=\s*(\d+)\s*,\s*y\s*=\s*(\d+)\s*\)",
+        "finish": r"finish\(\s*\)",
     }
 
     calls = []
@@ -671,14 +679,19 @@ Start with a drawing tool now.""",
             tool_calls = parse_tool_calls(response)
 
             if not tool_calls:
+                # Log what the LLM actually returned - critical for debugging
+                if on_step:
+                    on_step(
+                        iteration,
+                        "warning",
+                        f"No tool calls parsed from LLM output. Raw: {response[:300]}...",
+                    )
                 messages.append(
                     {
                         "role": "user",
-                        "content": "Please use a tool. Call view_canvas to see the canvas, then continue drawing or finish.",
+                        "content": "Please output ONLY a tool call in this exact format: fill_rect(x1=0, y1=0, x2=16, y2=16, color=0) or view_canvas() or finish(). Do NOT include any explanation or markdown.",
                     }
                 )
-                if on_step:
-                    on_step(iteration, "warning", "No tool calls found in LLM response")
                 continue
 
             for call in tool_calls:

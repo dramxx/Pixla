@@ -19,6 +19,8 @@ export function Home() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [generationProgress, setGenerationProgress] = useState<string>("");
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const currentGenIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     fetchPalettes();
@@ -35,53 +37,93 @@ export function Home() {
   useEffect(() => {
     // Re-subscribe to SSE stream when generation ID or status changes
     // This handles both initial generation AND edit mode (status changes to "generating")
-    if (currentGeneration?.id && (currentGeneration.status === "generating" || currentGeneration.status === "complete")) {
-      // Clear logs when starting a new generation (initial or edit)
-      if (currentGeneration.status === "generating") {
-        setLogs([]);
+    const genId = currentGeneration?.id;
+    const genStatus = currentGeneration?.status;
+
+    // Skip if no generation or not in generating/complete state
+    if (!genId || (genStatus !== "generating" && genStatus !== "complete")) {
+      // Clean up existing connection if any
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+        currentGenIdRef.current = null;
       }
-
-      // Only connect to stream if actively generating
-      if (currentGeneration.status !== "generating") {
-        setGenerationProgress("");
-        return;
-      }
-
-      setGenerationProgress("Starting generation...");
-
-      const eventSource = generationsApi.stream(currentGeneration.id);
-
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          // Update progress message
-          setGenerationProgress(`Iteration ${data.iterations || 0}...`);
-          
-          // Append new logs
-          if (data.logs && data.logs.length > 0) {
-            setLogs((prev) => [...prev, ...data.logs]);
-          }
-
-          if (data.status === "complete") {
-            getGeneration(currentGeneration.id);
-            eventSource.close();
-            setGenerationProgress("");
-          } else if (data.status === "error") {
-            getGeneration(currentGeneration.id);
-            eventSource.close();
-            setGenerationProgress("Generation failed");
-          }
-        } catch (e) {
-          console.error("SSE parse error:", e);
-        }
-      };
-
-      return () => {
-        eventSource.close();
-        setGenerationProgress("");
-      };
+      setGenerationProgress("");
+      return;
     }
+
+    // Skip if already connected to this generation
+    if (currentGenIdRef.current === genId && eventSourceRef.current) {
+      // Already connected - just return, don't reconnect
+      return;
+    }
+
+    // Clean up previous connection before creating new one
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    // Only connect if actively generating
+    if (genStatus !== "generating") {
+      setGenerationProgress("");
+      currentGenIdRef.current = genId;
+      return;
+    }
+
+    // Clear logs when starting a new generation
+    setLogs([]);
+    setGenerationProgress("Starting generation...");
+
+    // Create new connection and store reference
+    const eventSource = generationsApi.stream(genId);
+    eventSourceRef.current = eventSource;
+    currentGenIdRef.current = genId;
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Update progress message
+        setGenerationProgress(`Iteration ${data.iterations || 0}...`);
+        
+        // Append new logs
+        if (data.logs && data.logs.length > 0) {
+          setLogs((prev) => [...prev, ...data.logs]);
+        }
+
+        if (data.status === "complete") {
+          getGeneration(genId);
+          eventSource.close();
+          eventSourceRef.current = null;
+          currentGenIdRef.current = null;
+          setGenerationProgress("");
+        } else if (data.status === "error") {
+          getGeneration(genId);
+          eventSource.close();
+          eventSourceRef.current = null;
+          currentGenIdRef.current = null;
+          setGenerationProgress("Generation failed");
+        }
+      } catch (e) {
+        console.error("SSE parse error:", e);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+      eventSourceRef.current = null;
+      currentGenIdRef.current = null;
+      setGenerationProgress("Connection error");
+    };
+
+    // Cleanup function
+    return () => {
+      eventSource.close();
+      eventSourceRef.current = null;
+      currentGenIdRef.current = null;
+      setGenerationProgress("");
+    };
   }, [currentGeneration?.id, currentGeneration?.status]);
 
   // Auto-scroll to bottom when new logs arrive

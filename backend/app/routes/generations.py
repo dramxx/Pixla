@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from PIL import Image
 from typing import Optional, List
 from enum import Enum
@@ -84,6 +84,26 @@ class ChatRequest(BaseModel):
     region_x2: Optional[int] = None
     region_y2: Optional[int] = None
     region_description: Optional[str] = None
+
+    @field_validator("region_x1", "region_y1", "region_x2", "region_y2")
+    @classmethod
+    def validate_region_coords(cls, v, info):
+        if v is not None and v < 0:
+            raise ValueError(f"{info.field_name} must be >= 0")
+        if v is not None and v > 512:
+            raise ValueError(f"{info.field_name} must be <= 512")
+        return v
+
+    @model_validator(mode="after")
+    def validate_region_order(self):
+        # Ensure x1 < x2 and y1 < y2 when both are provided
+        if self.region_x1 is not None and self.region_x2 is not None:
+            if self.region_x1 >= self.region_x2:
+                raise ValueError("region_x1 must be less than region_x2")
+        if self.region_y1 is not None and self.region_y2 is not None:
+            if self.region_y1 >= self.region_y2:
+                raise ValueError("region_y1 must be less than region_y2")
+        return self
 
 
 def sse_event(event: str, data: dict) -> str:
@@ -206,8 +226,9 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
                 details=f"iterations={iterations}",
             )
 
-        except Exception as e:
-            # LLM failed - log error and fall back to quantization
+        except (ConnectionError, TimeoutError, RuntimeError) as e:
+            # Only fallback to quantization on actual connectivity/auth failures
+            # These are genuine LLM failures that can't be retried
             error_msg = f"LLM agent failed: {type(e).__name__}: {e}"
             log_operation(pipeline_logger, "LLM agent failed", success=False, details=error_msg)
             db.add_log(gen.id, "error", error_msg)
@@ -219,6 +240,20 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
             pixel_data = quantize_image_to_palette(reference, req.colors, req.size, dither=True)
             pixel_data = detect_background(pixel_data)
             iterations = 1
+            agent_used_llm = False
+
+        except Exception as e:
+            # For other exceptions (including tool parsing failures), raise instead of silently falling back
+            # This helps identify what's actually broken
+            error_msg = f"Unexpected error: {type(e).__name__}: {e}"
+            log_operation(
+                pipeline_logger,
+                "Unexpected error during generation",
+                success=False,
+                details=error_msg,
+            )
+            db.add_log(gen.id, "error", error_msg)
+            raise
 
         db.update_generation_pixels(gen.id, pixel_data, iterations)
 
@@ -442,6 +477,8 @@ You MUST output ONLY the tool call, no explanation, no markdown, no code blocks.
         # Run the agent loop manually with the existing canvas
         iteration = 0
         max_iterations = 40
+        max_empty_finish = 3  # Prevent infinite loops
+        empty_finish_count = 0
 
         while iteration < max_iterations:
             on_step(iteration, "thinking", "Getting LLM response...")
@@ -454,10 +491,16 @@ You MUST output ONLY the tool call, no explanation, no markdown, no code blocks.
             tool_calls = parse_tool_calls(response)
 
             if not tool_calls:
+                # Log what the LLM actually returned - critical for debugging edit mode
+                on_step(
+                    iteration,
+                    "warning",
+                    f"No tool calls parsed from edit output. Raw: {response[:300]}...",
+                )
                 messages.append(
                     {
                         "role": "user",
-                        "content": "Please use a tool. Call view_canvas to see the canvas, then continue drawing or finish.",
+                        "content": "Please output ONLY a tool call in this exact format: fill_rect(x1=0, y1=0, x2=16, y2=16, color=0) or view_canvas() or finish(). Do NOT include any explanation or markdown.",
                     }
                 )
                 continue
@@ -475,6 +518,25 @@ You MUST output ONLY the tool call, no explanation, no markdown, no code blocks.
                 messages.append({"role": "user", "content": f"Tool {tool_name} result: {result}"})
 
                 if tool_name == "finish":
+                    # Check if finish returned an error (empty canvas)
+                    if result.startswith("ERROR:"):
+                        empty_finish_count += 1
+                        if empty_finish_count >= max_empty_finish:
+                            on_step(
+                                iteration,
+                                "warning",
+                                "Too many empty finish attempts. Saving current state.",
+                            )
+                            break
+                        on_step(iteration, "warning", f"Finish rejected: {result}. Continuing...")
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": "You cannot finish with an empty canvas. Use fill_rect, draw_circle, or other tools to draw first. Keep drawing until canvas has content, then call finish().",
+                            }
+                        )
+                        continue
+
                     pixel_data = canvas.pixels
                     db.update_generation_pixels(gen_id, pixel_data, gen.iterations + 1)
 
@@ -507,6 +569,7 @@ You MUST output ONLY the tool call, no explanation, no markdown, no code blocks.
         _notify_gen_update(gen_id)
 
     except Exception as e:
+        _clear_gen_event(gen_id)
         db.update_generation_status(gen_id, GenerationStatus.ERROR, str(e))
         _notify_gen_update(gen_id)
         raise HTTPException(500, str(e))
@@ -529,7 +592,8 @@ async def generate_tileset(gen_id: int, req: TilesetRequest, request: Request):
         raise HTTPException(404, "Generation not found")
     if not gen.pixel_data:
         raise HTTPException(400, "No pixel data")
-    if gen.sprite_type != "block":
+    # sprite_type is stored as string in DB (e.g., "block", "icon")
+    if gen.sprite_type != SpriteType.BLOCK.value:
         raise HTTPException(400, "Tileset only works with block sprites")
 
     variants = generate_tileset(gen.pixel_data, gen.colors, gen.size)
