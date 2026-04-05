@@ -4,7 +4,12 @@ from PIL import Image
 from pathlib import Path
 from typing import Optional, List
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
-from app.services.constants import DIFFUSION_TYPE_PROMPTS, NEGATIVE_PROMPT
+from app.services.constants import (
+    DIFFUSION_TYPE_PROMPTS,
+    NEGATIVE_PROMPT,
+    RESOLUTION_HINTS,
+    RESOLUTION_NEGATIVE_PROMPTS,
+)
 
 logging.getLogger("diffusers").setLevel(logging.ERROR)
 
@@ -136,11 +141,16 @@ class DiffusionService:
         self,
         prompt: str,
         sprite_type: str = "block",
-        size: int = 512,
+        target_size: int = 512,
         loras: Optional[List[dict]] = None,
         num_inference_steps: Optional[int] = None,
         guidance_scale: Optional[float] = None,
+        # Backwards compatibility alias
+        size: Optional[int] = None,
     ) -> Image.Image:
+        # Support legacy 'size' parameter
+        if size is not None:
+            target_size = size
         self._load_model()
 
         if loras:
@@ -150,14 +160,25 @@ class DiffusionService:
             f"{prompt}. {DIFFUSION_TYPE_PROMPTS.get(sprite_type, DIFFUSION_TYPE_PROMPTS['block'])}"
         )
 
+        # Add resolution-specific hints
+        res_hint = RESOLUTION_HINTS.get(target_size, "")
+        if res_hint:
+            enhanced_prompt = f"{enhanced_prompt}. {res_hint}"
+
         steps = num_inference_steps if num_inference_steps is not None else 25
         guidance = guidance_scale if guidance_scale is not None else 8.0
 
+        # Build negative prompt with resolution-specific additions
+        negative_prompt = NEGATIVE_PROMPT
+        res_negative = RESOLUTION_NEGATIVE_PROMPTS.get(target_size, "")
+        if res_negative:
+            negative_prompt = f"{negative_prompt}, {res_negative}"
+
         return self.generate(
             prompt=enhanced_prompt,
-            negative_prompt=NEGATIVE_PROMPT,
-            width=size,
-            height=size,
+            negative_prompt=negative_prompt,
+            width=target_size,
+            height=target_size,
             num_inference_steps=steps,
             guidance_scale=guidance,
         )

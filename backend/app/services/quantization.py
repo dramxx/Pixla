@@ -163,3 +163,102 @@ def pixels_to_image(
                 img.putpixel((x, y), (0, 0, 0, 0))
 
     return img
+
+
+def optimize_palette_colors(
+    image: Image.Image,
+    target_palette: list[str],
+    max_colors: Optional[int] = None,
+) -> list[str]:
+    """Optimize palette by selecting colors that best represent the image.
+
+    Uses median-cut algorithm to find optimal color subset, then maps
+    to provided palette colors.
+    """
+    img = image.convert("RGB")
+    pixels = list(img.getdata())
+
+    # Extract all unique colors with their counts
+    color_counts: dict[tuple[int, int, int], int] = {}
+    for r, g, b in pixels:
+        color_counts[(r, g, b)] = color_counts.get((r, g, b), 0) + 1
+
+    # Median cut to find representative colors
+    num_colors = min(max_colors or 16, len(color_counts), target_palette)
+
+    # Simple median cut implementation
+    def median_cut(colors: list[tuple[int, int, int]], k: int) -> list[tuple[int, int, int]]:
+        if k <= 0 or not colors:
+            return []
+
+        # Find the channel with greatest range
+        channels = [(min(c[i] for c in colors), max(c[i] for c in colors)) for i in range(3)]
+        ranges = [max_c - min_c for min_c, max_c in channels]
+        split_channel = ranges.index(max(ranges))
+
+        # Sort by that channel and split
+        colors_sorted = sorted(colors, key=lambda c: c[split_channel])
+        mid = len(colors_sorted) // 2
+
+        left = median_cut(colors_sorted[:mid], k // 2)
+        right = median_cut(colors_sorted[mid:], k - k // 2)
+
+        if not left and not right:
+            # Average all colors
+            avg = (
+                sum(c[0] for c in colors) // len(colors),
+                sum(c[1] for c in colors) // len(colors),
+                sum(c[2] for c in colors) // len(colors),
+            )
+            return [avg]
+
+        return left + right
+
+    # Get representative colors
+    unique_colors = list(color_counts.keys())
+    if len(unique_colors) <= num_colors:
+        # Use unique colors, map to closest palette colors
+        representative = unique_colors
+    else:
+        representative = median_cut(unique_colors, num_colors)
+        if len(representative) < num_colors:
+            representative = unique_colors[:num_colors]
+
+    return representative
+
+
+def remap_to_optimal_palette(
+    pixel_data: list[list[int]],
+    source_palette: list[str],
+    target_palette: list[str],
+) -> list[list[int]]:
+    """Remap pixel data from source palette to target palette optimally.
+
+    Uses the target palette colors directly - user provides their desired palette.
+    """
+    if not target_palette:
+        return pixel_data
+
+    target_rgb = [hex_to_rgb(c) for c in target_palette]
+    new_pixel_data = []
+
+    for row in pixel_data:
+        new_row = []
+        for color_idx in row:
+            if color_idx < 0 or color_idx >= len(source_palette):
+                # Default to transparent or first color
+                new_row.append(-1 if len(target_palette) > 0 else 0)
+            else:
+                source_rgb = hex_to_rgb(source_palette[color_idx])
+                # Find closest target color
+                min_dist = float("inf")
+                best_idx = 0
+                for i, target in enumerate(target_rgb):
+                    dist = sum((source_rgb[j] - target[j]) ** 2 for j in range(3))
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_idx = i
+                new_row.append(best_idx)
+        new_pixel_data.append(new_row)
+
+    return new_pixel_data

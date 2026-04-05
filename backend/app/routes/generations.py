@@ -111,14 +111,21 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
         from app.services.diffusion import get_diffusion, unload_diffusion
 
         diffusion = get_diffusion(req.model)
+        # Generate at 512px for ALL targets - SD is trained at this resolution
+        # Then downscale properly to target. This preserves structure better
+        # than generating at small sizes where the model struggles.
         reference = diffusion.generate_pixel_art_reference(
             prompt=req.prompt,
             sprite_type=req.sprite_type.value,
-            size=512,
+            target_size=512,
             loras=req.loras,
             num_inference_steps=req.num_inference_steps,
             guidance_scale=req.guidance_scale,
         )
+
+        # Downscale to target size using Lanczos for quality
+        if req.size != 512:
+            reference = reference.resize((req.size, req.size), Image.LANCZOS)
         reference.save(reference_path)
         db.update_generation_reference(gen.id, str(reference_path))
 
@@ -132,7 +139,12 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
             gen.reference_path = str(reference_path)
             return gen
 
-        if req.use_agent:
+        # Skip agent for small resolutions - it can't reason effectively
+        # at these sizes. Use direct quantization instead.
+        # At 64px (4096 pixels) and below, the agent has limited information.
+        use_agent_at_low_res = req.use_agent and req.size >= 128
+
+        if use_agent_at_low_res:
             try:
                 agent = get_agent()
 
