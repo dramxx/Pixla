@@ -1,11 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { Play } from "lucide-react";
+import { Play, Edit2 } from "lucide-react";
 import { usePalettesStore } from "@/store/palettes";
 import { useGenerationsStore } from "@/store/generations";
 import { useModelsStore } from "@/store/models";
 
 export function ControlPanel() {
   const [prompt, setPrompt] = useState("");
+  const [editMessage, setEditMessage] = useState("");
+  const [regionX1, setRegionX1] = useState<number | "">("");
+  const [regionY1, setRegionY1] = useState<number | "">("");
+  const [regionX2, setRegionX2] = useState<number | "">("");
+  const [regionY2, setRegionY2] = useState<number | "">("");
+  const [regionDescription, setRegionDescription] = useState("");
   const [size, setSize] = useState(16);
   const [spriteType, setSpriteType] = useState("block");
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -14,8 +20,15 @@ export function ControlPanel() {
   const [showLoraSettings, setShowLoraSettings] = useState(false);
 
   const { palettes, currentPalette } = usePalettesStore();
-  const { createGeneration, isGenerating } =
-    useGenerationsStore();
+  const {
+    createGeneration,
+    isGenerating,
+    currentGeneration,
+    isEditing,
+    setEditingMode,
+    chatWithGeneration,
+    clearCurrentGeneration,
+  } = useGenerationsStore();
   const {
     models,
     loras,
@@ -27,6 +40,13 @@ export function ControlPanel() {
     toggleLora,
     setLoraScale,
   } = useModelsStore();
+
+  // Sync prompt when currentGeneration changes (for edit mode)
+  useEffect(() => {
+    if (currentGeneration && isEditing) {
+      setPrompt(currentGeneration.prompt);
+    }
+  }, [currentGeneration, isEditing]);
 
   useEffect(() => {
     fetchModels();
@@ -43,6 +63,7 @@ export function ControlPanel() {
     }));
 
     try {
+      setEditingMode(false);
       await createGeneration({
         prompt: prompt.trim(),
         colors: currentPalette.colors,
@@ -59,28 +80,194 @@ export function ControlPanel() {
     }
   };
 
+  const handleEdit = async () => {
+    if (!editMessage.trim() || !currentGeneration) return;
+
+    const region = (regionX1 !== "" && regionY1 !== "" && regionX2 !== "" && regionY2 !== "")
+      ? {
+          x1: regionX1 as number,
+          y1: regionY1 as number,
+          x2: regionX2 as number,
+          y2: regionY2 as number,
+          description: regionDescription || undefined,
+        }
+      : regionDescription
+        ? { description: regionDescription }
+        : undefined;
+
+    try {
+      await chatWithGeneration(currentGeneration.id, editMessage.trim(), region);
+      setEditMessage("");
+    } catch (error) {
+      console.error("Failed to edit:", error);
+    }
+  };
+
+  const handleToggleMode = () => {
+    if (isEditing) {
+      // Switching to new generation - clear current
+      setEditingMode(false);
+      setPrompt("");
+      clearCurrentGeneration();
+      // Clear region fields
+      setRegionX1("");
+      setRegionY1("");
+      setRegionX2("");
+      setRegionY2("");
+      setRegionDescription("");
+    } else if (currentGeneration) {
+      // Switching to edit mode
+      setEditingMode(true);
+      setPrompt(currentGeneration.prompt);
+    }
+  };
+
+  const hasExistingGeneration =
+    currentGeneration && currentGeneration.status === "complete";
+
   return (
     <div className="p-6 flex flex-col h-full justify-between">
-      <div className="flex-1 flex flex-col" style={{ gap: '1rem' }}>
-        <div>
-          <label className="block text-sm font-medium mb-2">PROMPT</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.ctrlKey && e.key === "Enter") {
-                e.preventDefault();
-                if (prompt.trim() && currentPalette && !isGenerating) {
-                  handleGenerate();
+      <div className="flex-1 flex flex-col" style={{ gap: "1rem" }}>
+        {/* Mode Section - shown when generation exists */}
+        {hasExistingGeneration && (
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">MODE</span>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <span className={`text-sm ${isEditing ? "text-purple-400" : "text-muted"}`}>
+                Edit
+              </span>
+              <input
+                type="checkbox"
+                checked={isEditing}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setEditingMode(true);
+                    setPrompt(currentGeneration.prompt);
+                  } else {
+                    setEditingMode(false);
+                    setPrompt("");
+                    clearCurrentGeneration();
+                  }
+                }}
+                disabled={isGenerating}
+                className="accent-purple-500 w-4 h-4"
+              />
+            </label>
+          </div>
+        )}
+
+        {/* Edit Mode Message Input */}
+        {isEditing && (
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              EDIT CURRENT IMAGE
+            </label>
+            <textarea
+              value={editMessage}
+              onChange={(e) => setEditMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.ctrlKey && e.key === "Enter") {
+                  e.preventDefault();
+                  if (editMessage.trim() && !isGenerating) {
+                    handleEdit();
+                  }
                 }
-              }
-            }}
-            placeholder="a medieval iron sword with wooden handle..."
-            rows={3}
-            className="input textarea"
-            disabled={isGenerating}
-          />
-        </div>
+              }}
+              placeholder="e.g., Add more details to the handle, Change the blade color to silver..."
+              rows={2}
+              className="input textarea"
+              disabled={isGenerating}
+            />
+            
+            {/* Region targeting inputs */}
+            <div className="mt-3">
+              <label className="block text-sm font-medium mb-2">
+                FOCUS REGION (optional)
+              </label>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <span className="text-xs text-muted">X1</span>
+                  <input
+                    type="number"
+                    value={regionX1}
+                    onChange={(e) => setRegionX1(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
+                    placeholder="0"
+                    min={0}
+                    className="input"
+                    disabled={isGenerating}
+                  />
+                </div>
+                <div>
+                  <span className="text-xs text-muted">Y1</span>
+                  <input
+                    type="number"
+                    value={regionY1}
+                    onChange={(e) => setRegionY1(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
+                    placeholder="0"
+                    min={0}
+                    className="input"
+                    disabled={isGenerating}
+                  />
+                </div>
+                <div>
+                  <span className="text-xs text-muted">X2</span>
+                  <input
+                    type="number"
+                    value={regionX2}
+                    onChange={(e) => setRegionX2(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
+                    placeholder="16"
+                    min={0}
+                    className="input"
+                    disabled={isGenerating}
+                  />
+                </div>
+                <div>
+                  <span className="text-xs text-muted">Y2</span>
+                  <input
+                    type="number"
+                    value={regionY2}
+                    onChange={(e) => setRegionY2(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
+                    placeholder="16"
+                    min={0}
+                    className="input"
+                    disabled={isGenerating}
+                  />
+                </div>
+              </div>
+              <input
+                type="text"
+                value={regionDescription}
+                onChange={(e) => setRegionDescription(e.target.value)}
+                placeholder="e.g., handle, blade, center (optional)"
+                className="input"
+                disabled={isGenerating}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Prompt Input (New Generation mode) */}
+        {!isEditing && (
+          <div>
+            <label className="block text-sm font-medium mb-2">PROMPT</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.ctrlKey && e.key === "Enter") {
+                  e.preventDefault();
+                  if (prompt.trim() && currentPalette && !isGenerating) {
+                    handleGenerate();
+                  }
+                }
+              }}
+              placeholder="a medieval iron sword with wooden handle..."
+              rows={3}
+              className="input textarea"
+              disabled={isGenerating}
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -128,11 +315,11 @@ export function ControlPanel() {
           >
             {models.map((model: any) => (
               <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-          </div>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {/* LoRA Selection */}
         <div>
@@ -160,14 +347,16 @@ export function ControlPanel() {
                   );
 
                   return (
-                    <div key={lora.id} className="flex items-center gap-2">
+                    <div key={lora.id} className="flex items-center gap-1">
                       <input
                         type="checkbox"
                         checked={isEnabled}
                         onChange={() => toggleLora(lora)}
                         disabled={isGenerating}
                       />
-                      <span className="text-sm flex-1 whitespace-nowrap">{lora.name}</span>
+                      <span className="text-sm flex-1 whitespace-nowrap">
+                        {lora.name}
+                      </span>
                       {isEnabled && (
                         <div className="flex items-center gap-2">
                           <input
@@ -202,9 +391,7 @@ export function ControlPanel() {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-sm">Steps</span>
-                <span className="text-sm text-muted">
-                  {numInferenceSteps}
-                </span>
+                <span className="text-sm text-muted">{numInferenceSteps}</span>
               </div>
               <input
                 type="range"
@@ -221,9 +408,7 @@ export function ControlPanel() {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <span className="text-sm">Guidance</span>
-                <span className="text-sm text-muted">
-                  {guidanceScale}
-                </span>
+                <span className="text-sm text-muted">{guidanceScale}</span>
               </div>
               <input
                 type="range"
@@ -269,7 +454,11 @@ export function ControlPanel() {
                 <div
                   key={index}
                   className="rounded border border-border"
-                  style={{ backgroundColor: color, width: '25px', height: '25px' }}
+                  style={{
+                    backgroundColor: color,
+                    width: "25px",
+                    height: "25px",
+                  }}
                   title={color}
                 />
               ))}
@@ -278,14 +467,26 @@ export function ControlPanel() {
         </div>
       </div>
 
-      <button
-        onClick={handleGenerate}
-        disabled={!prompt.trim() || !currentPalette || isGenerating}
-        className="btn btn-primary"
-      >
-        <Play className="w-4 h-4" />
-        {isGenerating ? "Generating..." : "Generate"}
-      </button>
+      {/* Action Button */}
+      {isEditing ? (
+        <button
+          onClick={handleEdit}
+          disabled={!editMessage.trim() || isGenerating}
+          className="btn btn-primary"
+        >
+          <Edit2 className="w-4 h-4" />
+          {isGenerating ? "Editing..." : "Apply Edit"}
+        </button>
+      ) : (
+        <button
+          onClick={handleGenerate}
+          disabled={!prompt.trim() || !currentPalette || isGenerating}
+          className="btn btn-primary"
+        >
+          <Play className="w-4 h-4" />
+          {isGenerating ? "Generating..." : "Generate"}
+        </button>
+      )}
     </div>
   );
 }

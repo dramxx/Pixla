@@ -3,7 +3,6 @@ v1.1
 MUST
 
 - lower res is useless / sometimes weird results
-- edit mode is hidden in history tab and not really working well. we need to be able to iterate in main generation window, history is just table
 
 NICE TO HAVE
 

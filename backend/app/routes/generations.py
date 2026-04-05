@@ -13,6 +13,7 @@ from app.models import GenerationStatus
 from app.services.quantization import quantize_image_to_palette, pixels_to_image, detect_background
 from app.services.agent import get_agent, get_session, cleanup_session
 from app.services.autotile import generate_tileset
+from app.utils.logging import pipeline_logger, log_operation
 
 router = APIRouter()
 
@@ -78,6 +79,11 @@ class CreateGenerationRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    region_x1: Optional[int] = None
+    region_y1: Optional[int] = None
+    region_x2: Optional[int] = None
+    region_y2: Optional[int] = None
+    region_description: Optional[str] = None
 
 
 def sse_event(event: str, data: dict) -> str:
@@ -98,6 +104,12 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
         model=req.model,
     )
 
+    log_operation(
+        pipeline_logger,
+        "Generation started",
+        details=f"gen_id={gen.id}, prompt={req.prompt[:30]}...",
+    )
+
     try:
         db.update_generation_status(gen.id, GenerationStatus.GENERATING)
         _notify_gen_update(gen.id)
@@ -110,10 +122,10 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
 
         from app.services.diffusion import get_diffusion, unload_diffusion
 
+        # Step 1: Generate reference image with diffusion
+        log_operation(pipeline_logger, "Step 1/3: Generating reference image", details=f"size=512")
+
         diffusion = get_diffusion(req.model)
-        # Generate at 512px for ALL targets - SD is trained at this resolution
-        # Then downscale properly to target. This preserves structure better
-        # than generating at small sizes where the model struggles.
         reference = diffusion.generate_pixel_art_reference(
             prompt=req.prompt,
             sprite_type=req.sprite_type.value,
@@ -132,6 +144,13 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
         # Free GPU memory after generation
         unload_diffusion()
 
+        log_operation(
+            pipeline_logger,
+            "Reference image generated",
+            success=True,
+            details=f"saved to {reference_path}",
+        )
+
         if req.reference_only:
             db.update_generation_status(gen.id, GenerationStatus.COMPLETE)
             _notify_gen_update(gen.id)
@@ -139,60 +158,72 @@ async def create_generation(req: CreateGenerationRequest, request: Request):
             gen.reference_path = str(reference_path)
             return gen
 
-        # Skip agent for small resolutions - it can't reason effectively
-        # at these sizes. Use direct quantization instead.
-        # At 64px (4096 pixels) and below, the agent has limited information.
-        use_agent_at_low_res = req.use_agent and req.size >= 128
+        # Step 2: LLM agent draws pixel-by-pixel
+        log_operation(
+            pipeline_logger,
+            "Step 2/3: LLM agent drawing pixels",
+            details=f"size={req.size}x{req.size}",
+        )
 
-        if use_agent_at_low_res:
-            try:
-                agent = get_agent()
+        agent_used_llm = False
+        fallback_reason = None
 
-                import base64
-                import io
+        try:
+            agent = get_agent()
 
-                ref_bytes = io.BytesIO()
-                reference.save(ref_bytes, format="PNG")
-                ref_bytes.seek(0)
-                ref_b64 = base64.b64encode(ref_bytes.read()).decode()
+            import base64
+            import io
 
-                system_prompt = f"""A reference concept image is provided. Match its shapes, colors, and composition as closely as possible in pixel art form.
+            # Convert reference image to base64 for LLM
+            ref_bytes = io.BytesIO()
+            reference.save(ref_bytes, format="PNG")
+            ref_bytes.seek(0)
+            ref_b64 = base64.b64encode(ref_bytes.read()).decode()
 
-Reference image (base64 PNG): data:image/png;base64,{ref_b64}
+            def on_step(iteration: int, step_type: str, message: str):
+                db.add_log(gen.id, step_type, message)
 
-{req.system_prompt or ""}"""
+            canvas = agent.run(
+                gen_id=gen.id,
+                prompt=req.prompt,
+                palette=req.colors,
+                size=req.size,
+                sprite_type=req.sprite_type.value,
+                max_iterations=40,
+                on_step=on_step,
+                reference_image_b64=ref_b64,
+            )
 
-                def on_step(iteration: int, step_type: str, message: str):
-                    pass
+            pixel_data = canvas.pixels
+            pixel_data = detect_background(pixel_data)
+            iterations = 40
+            agent_used_llm = True
 
-                canvas = agent.run(
-                    prompt=req.prompt,
-                    palette=req.colors,
-                    size=req.size,
-                    sprite_type=req.sprite_type.value,
-                    max_iterations=40,
-                    on_step=on_step,
-                )
+            log_operation(
+                pipeline_logger,
+                "LLM agent completed",
+                success=True,
+                details=f"iterations={iterations}",
+            )
 
-                pixel_data = canvas.pixels
-                # Detect and mark background as transparent
-                pixel_data = detect_background(pixel_data)
-                iterations = 40
+        except Exception as e:
+            # LLM failed - log error and fall back to quantization
+            error_msg = f"LLM agent failed: {type(e).__name__}: {e}"
+            log_operation(pipeline_logger, "LLM agent failed", success=False, details=error_msg)
+            db.add_log(gen.id, "error", error_msg)
 
-            except Exception as e:
-                db.add_log(
-                    gen.id, "error", f"Agent failed: {str(e)}. Falling back to quantization."
-                )
-                print(f"Agent failed, falling back to quantization: {e}")
-                pixel_data = quantize_image_to_palette(reference, req.colors, req.size, dither=True)
-                pixel_data = detect_background(pixel_data)
-                iterations = 1
-        else:
+            # Fall back to quantization but make it visible
+            fallback_reason = str(e)
+            log_operation(pipeline_logger, "Falling back to quantization", details=fallback_reason)
+
             pixel_data = quantize_image_to_palette(reference, req.colors, req.size, dither=True)
             pixel_data = detect_background(pixel_data)
             iterations = 1
 
         db.update_generation_pixels(gen.id, pixel_data, iterations)
+
+        # Step 3: Save final image
+        log_operation(pipeline_logger, "Step 3/3: Saving final image")
 
         img = pixels_to_image(pixel_data, req.colors)
 
@@ -210,10 +241,20 @@ Reference image (base64 PNG): data:image/png;base64,{ref_b64}
         db.update_generation_status(gen.id, GenerationStatus.COMPLETE)
         _notify_gen_update(gen.id)
 
+        log_operation(
+            pipeline_logger,
+            "Generation complete",
+            success=True,
+            details=f"agent_used={agent_used_llm}, fallback={fallback_reason is not None}",
+        )
+
     except Exception as e:
+        log_operation(pipeline_logger, "Generation failed", success=False, error=e)
         db.update_generation_status(gen.id, GenerationStatus.ERROR, str(e))
         _notify_gen_update(gen.id)
-        raise HTTPException(500, str(e))
+        _clear_gen_event(gen.id)  # Clean up event to prevent memory leak
+        # Return actual error to frontend instead of generic 500
+        raise HTTPException(500, f"Generation failed: {str(e)}")
 
     return db.get_generation(gen.id)
 
@@ -238,11 +279,39 @@ async def stream_generation(gen_id: int, request: Request):
     db = request.app.state.db
     event = _get_gen_event(gen_id)
 
+    # Track last log index to only send new logs
+    last_log_id = 0
+    max_logs_per_message = 20
+
     async def event_generator():
+        nonlocal last_log_id
+
         for _ in range(120):
             gen = db.get_generation(gen_id)
+
+            # Get logs since last check
+            logs = []
             if gen:
-                yield f"data: {json.dumps({'id': gen.id, 'status': gen.status.value, 'iterations': gen.iterations})}\n\n"
+                all_logs = db.get_logs(gen_id)
+                # Only get new logs (after last_log_id)
+                new_logs = [l for l in all_logs if l["id"] > last_log_id]
+                if new_logs:
+                    logs = new_logs[-max_logs_per_message:]  # Last N logs
+                    last_log_id = new_logs[-1]["id"]
+
+            log_messages = [
+                {"step": l["step"], "message": l["message"], "ts": l["created_at"][-8:]}
+                for l in logs
+            ]
+
+            data = {
+                "id": gen.id if gen else gen_id,
+                "status": gen.status.value if gen else "unknown",
+                "iterations": gen.iterations if gen else 0,
+                "logs": log_messages,
+            }
+
+            yield f"data: {json.dumps(data)}\n\n"
 
             if gen and gen.status in [
                 GenerationStatus.COMPLETE.value,
@@ -288,9 +357,12 @@ async def download_generation(gen_id: int, request: Request):
     )
 
 
-@router.post("/generations/{gen_id}/chat")
-async def chat_with_generation(gen_id: int, req: ChatRequest, request: Request):
-    """Continue an existing generation with edit requests."""
+@router.post("/generations/{gen_id}/edit")
+async def edit_generation(gen_id: int, req: ChatRequest, request: Request):
+    """Continue an existing generation with edit requests.
+
+    Creates a new agent session with the existing pixel data as starting point.
+    """
     db = request.app.state.db
     storage_path = Path(request.app.state.storage_path)
 
@@ -301,10 +373,6 @@ async def chat_with_generation(gen_id: int, req: ChatRequest, request: Request):
     if not gen.pixel_data:
         raise HTTPException(400, "No pixel data to edit")
 
-    session = get_session(gen_id)
-    if not session:
-        raise HTTPException(400, "No active session. Create a new generation to edit.")
-
     try:
         db.update_generation_status(gen_id, GenerationStatus.GENERATING)
         _notify_gen_update(gen_id)
@@ -312,9 +380,119 @@ async def chat_with_generation(gen_id: int, req: ChatRequest, request: Request):
         def on_step(iteration: int, step_type: str, message: str):
             db.add_log(gen_id, step_type, message)
 
-        agent = get_agent()
-        canvas = agent.continue_session(gen_id, req.message, on_step)
+        # Import here to avoid circular imports
+        from app.services.agent import get_agent, LocalAgent
+        from app.services.canvas import Canvas
 
+        agent = get_agent()
+
+        # Create canvas with existing pixel data as starting point
+        canvas = Canvas(gen.size, gen.colors, gen.pixel_data)
+
+        # Build continuation prompt with current canvas state
+        from app.services.agent import build_system_prompt, build_continuation_prompt
+
+        system_prompt = build_system_prompt(
+            prompt=gen.prompt, palette=gen.colors, size=gen.size, sprite_type=gen.sprite_type
+        )
+
+        continuation_prompt = build_continuation_prompt(gen.prompt, canvas)
+
+        # Build region targeting info if provided
+        region_instruction = ""
+        if (
+            req.region_x1 is not None
+            and req.region_y1 is not None
+            and req.region_x2 is not None
+            and req.region_y2 is not None
+        ):
+            region_instruction = f"""FOCUS AREA: You MUST restrict your edits to the region from ({req.region_x1}, {req.region_y1}) to ({req.region_x2}, {req.region_y2}). Do NOT modify pixels outside this area unless specifically requested.
+"""
+        elif req.region_description:
+            region_instruction = f"""FOCUS AREA: {req.region_description}. Keep your edits focused on this area.
+"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"""Current canvas state loaded from previous generation.
+
+{continuation_prompt}
+{region_instruction}
+USER REQUEST: {req.message}
+
+STRICT INSTRUCTIONS - USE THIS EXACT FORMAT:
+
+CORRECT (will be parsed):
+- fill_rect(x1=16, y1=32, x2=48, y2=48, color=2)
+- draw_circle(cx=32, cy=32, radius=8, color=1, fill=True)
+- view_canvas()
+- finish()
+
+WRONG (will be ignored):
+- "I'll draw a rectangle" 
+- "```python\nfill_rect(...)\n```"
+- Any explanation text before the tool call
+
+You MUST output ONLY the tool call, no explanation, no markdown, no code blocks.""",
+            },
+        ]
+
+        # Run the agent loop manually with the existing canvas
+        iteration = 0
+        max_iterations = 40
+
+        while iteration < max_iterations:
+            on_step(iteration, "thinking", "Getting LLM response...")
+
+            response = agent.chat(messages)
+            messages.append({"role": "assistant", "content": response})
+
+            from app.services.agent import parse_tool_calls, execute_tool
+
+            tool_calls = parse_tool_calls(response)
+
+            if not tool_calls:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Please use a tool. Call view_canvas to see the canvas, then continue drawing or finish.",
+                    }
+                )
+                continue
+
+            for call in tool_calls:
+                tool_name = call["tool"]
+                tool_args = call["args"]
+
+                on_step(iteration, "tool_call", f"{tool_name}({tool_args})")
+
+                result = execute_tool(canvas, tool_name, tool_args)
+
+                on_step(iteration, "tool_result", result)
+
+                messages.append({"role": "user", "content": f"Tool {tool_name} result: {result}"})
+
+                if tool_name == "finish":
+                    pixel_data = canvas.pixels
+                    db.update_generation_pixels(gen_id, pixel_data, gen.iterations + 1)
+
+                    img = pixels_to_image(pixel_data, gen.colors)
+                    output_dir = storage_path / "output"
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    image_id = f"gen_{gen_id}_{gen.size}x{gen.size}.png"
+                    img.save(output_dir / image_id)
+
+                    db.update_generation_image(gen_id, str(output_dir / image_id))
+                    db.update_generation_status(gen_id, GenerationStatus.COMPLETE)
+                    _notify_gen_update(gen_id)
+
+                    return db.get_generation(gen_id)
+
+            iteration += 1
+
+        # Max iterations reached - save current state
         pixel_data = canvas.pixels
         db.update_generation_pixels(gen_id, pixel_data, gen.iterations + 1)
 
@@ -327,8 +505,6 @@ async def chat_with_generation(gen_id: int, req: ChatRequest, request: Request):
         db.update_generation_image(gen_id, str(output_dir / image_id))
         db.update_generation_status(gen_id, GenerationStatus.COMPLETE)
         _notify_gen_update(gen_id)
-
-        cleanup_session(gen_id)
 
     except Exception as e:
         db.update_generation_status(gen_id, GenerationStatus.ERROR, str(e))

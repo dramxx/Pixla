@@ -10,6 +10,7 @@ from app.services.constants import (
     RESOLUTION_HINTS,
     RESOLUTION_NEGATIVE_PROMPTS,
 )
+from app.utils.logging import diffusion_logger, log_operation
 
 logging.getLogger("diffusers").setLevel(logging.ERROR)
 
@@ -30,7 +31,11 @@ class DiffusionService:
         if self._pipeline is not None:
             return
 
-        print(f"Loading model {self.model_id} on {self.device}...")
+        log_operation(
+            diffusion_logger,
+            "Loading diffusion model",
+            details=f"model={self.model_id}, device={self.device}",
+        )
 
         try:
             model_path = Path(self.model_id)
@@ -62,9 +67,16 @@ class DiffusionService:
             )
             if self.device == "cuda":
                 self._pipeline.enable_attention_slicing()
-            print("Model loaded successfully")
+            log_operation(
+                diffusion_logger,
+                "Diffusion model loaded",
+                success=True,
+                details=f"model={self.model_id}",
+            )
         except Exception as e:
-            print(f"Error loading model: {e}")
+            log_operation(
+                diffusion_logger, "Failed to load diffusion model", success=False, error=e
+            )
             raise
 
     def load_loras(self, loras: List[dict]):
@@ -120,6 +132,12 @@ class DiffusionService:
     ) -> Image.Image:
         self._load_model()
 
+        log_operation(
+            diffusion_logger,
+            "Generating image",
+            details=f"prompt={prompt[:50]}..., size={width}x{height}, steps={num_inference_steps}",
+        )
+
         if seed is not None:
             generator = torch.Generator(device=self.device).manual_seed(seed)
         else:
@@ -135,6 +153,9 @@ class DiffusionService:
             generator=generator,
         )
 
+        log_operation(
+            diffusion_logger, "Image generated", success=True, details=f"size={width}x{height}"
+        )
         return result.images[0]
 
     def generate_pixel_art_reference(

@@ -5,6 +5,7 @@ from app.services.agent import (
     parse_tool_calls,
     execute_tool,
     Session,
+    LocalAgent,
 )
 from app.services.canvas import Canvas
 
@@ -219,9 +220,18 @@ class TestExecuteTool:
 
     def test_execute_finish(self):
         canvas = Canvas(4, ["#FF0000"])
+        # Add some pixels first
+        canvas.pixels[0][0] = 0
         result = execute_tool(canvas, "finish", {})
 
         assert result == "FINISHED"
+
+    def test_execute_finish_empty_returns_error(self):
+        """Test that finish() on empty canvas returns error."""
+        canvas = Canvas(4, ["#FF0000"])
+        result = execute_tool(canvas, "finish", {})
+
+        assert "ERROR" in result
 
     def test_execute_unknown_tool(self):
         canvas = Canvas(4, ["#FF0000"])
@@ -240,3 +250,140 @@ class TestSession:
         assert session.canvas == canvas
         assert session.messages == messages
         assert session.original_prompt == "test prompt"
+
+
+class TestLocalAgentConnectivity:
+    """Test LLM connectivity check functionality."""
+
+    def test_check_connectivity_success(self):
+        """Test successful connectivity check."""
+        from unittest.mock import MagicMock, patch
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch.object(agent.http_client, "get", return_value=mock_response):
+            is_available, error_msg = agent.check_connectivity()
+
+            assert is_available is True
+            assert error_msg == ""
+
+    def test_check_connectivity_failure_non_200(self):
+        """Test connectivity check when server returns non-200."""
+        from unittest.mock import MagicMock, patch
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+
+        with patch.object(agent.http_client, "get", return_value=mock_response):
+            is_available, error_msg = agent.check_connectivity()
+
+            assert is_available is False
+            assert "503" in error_msg
+
+    def test_check_connectivity_connection_error(self):
+        """Test connectivity check when server is unreachable."""
+        from unittest.mock import patch
+        import httpx
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        with patch.object(
+            agent.http_client, "get", side_effect=httpx.ConnectError("Connection refused")
+        ):
+            is_available, error_msg = agent.check_connectivity()
+
+            assert is_available is False
+            assert "Cannot connect" in error_msg
+
+    def test_check_connectivity_timeout(self):
+        """Test connectivity check when server times out."""
+        from unittest.mock import patch
+        import httpx
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        with patch.object(agent.http_client, "get", side_effect=httpx.TimeoutException("Timeout")):
+            is_available, error_msg = agent.check_connectivity()
+
+            assert is_available is False
+            assert "timed out" in error_msg
+
+
+class TestLocalAgentChat:
+    """Test LLM chat functionality with proper error handling."""
+
+    def test_chat_success(self):
+        """Test successful chat request."""
+        from unittest.mock import MagicMock, patch
+
+        agent = LocalAgent(
+            llm_url="http://localhost:8081", model="test-model", temperature=0.7, max_tokens=4096
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "draw_pixel(x=0, y=0, color=0)"}}]
+        }
+
+        with patch.object(agent.http_client, "post", return_value=mock_response):
+            result = agent.chat([{"role": "system", "content": "test"}])
+
+            assert result == "draw_pixel(x=0, y=0, color=0)"
+
+    def test_chat_connection_error(self):
+        """Test chat raises ConnectionError on connection failure."""
+        from unittest.mock import patch
+        import httpx
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        with patch.object(
+            agent.http_client, "post", side_effect=httpx.ConnectError("Connection refused")
+        ):
+            with pytest.raises(ConnectionError) as exc_info:
+                agent.chat([{"role": "system", "content": "test"}])
+
+            assert "Cannot connect to LLM" in str(exc_info.value)
+
+    def test_chat_timeout_error(self):
+        """Test chat raises TimeoutError on timeout."""
+        from unittest.mock import patch
+        import httpx
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        with patch.object(agent.http_client, "post", side_effect=httpx.TimeoutException("Timeout")):
+            with pytest.raises(TimeoutError) as exc_info:
+                agent.chat([{"role": "system", "content": "test"}])
+
+            assert "timed out" in str(exc_info.value)
+
+    def test_chat_http_error(self):
+        """Test chat raises RuntimeError on HTTP error."""
+        from unittest.mock import MagicMock, patch
+        import httpx
+
+        agent = LocalAgent(llm_url="http://localhost:8081", model="test-model")
+
+        # Create a proper mock response
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal server error"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Error",
+            request=MagicMock(),  # Add required request parameter
+            response=mock_response,
+        )
+
+        with patch.object(agent.http_client, "post", return_value=mock_response):
+            with pytest.raises(RuntimeError) as exc_info:
+                agent.chat([{"role": "system", "content": "test"}])
+
+            assert "LLM returned error" in str(exc_info.value)

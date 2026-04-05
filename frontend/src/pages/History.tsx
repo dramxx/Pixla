@@ -98,10 +98,20 @@ function TilesetModal({ generation, onClose }: TilesetModalProps) {
   const tilesetName = `tileset_${generation.id}`;
 
   useEffect(() => {
+    const abortController = new AbortController();
+    
     generationsApi.tileset(generation.id, tilesetName)
       .then(setTileset)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to generate tileset"))
+      .catch((err) => {
+        if (err instanceof Error && err.name !== 'AbortError') {
+          setError(err instanceof Error ? err.message : "Failed to generate tileset");
+        }
+      })
       .finally(() => setIsLoading(false));
+    
+    return () => {
+      abortController.abort();
+    };
   }, [generation.id, tilesetName]);
 
   return (
@@ -160,11 +170,23 @@ function GenerationDetailModal({ generation, onClose }: GenerationDetailModalPro
   useEffect(() => {
     if (!generation) return;
     
+    const abortController = new AbortController();
+    
     setIsLoading(true);
-    generationsApi.get(generation.id).then((gen) => {
-      setFullGeneration(gen);
-      setIsLoading(false);
-    });
+    generationsApi.get(generation.id, { signal: abortController.signal })
+      .then((gen) => {
+        setFullGeneration(gen);
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.name !== 'AbortError') {
+          setIsLoading(false);
+        }
+      });
+    
+    return () => {
+      abortController.abort();
+    };
   }, [generation]);
 
   if (!generation) return null;

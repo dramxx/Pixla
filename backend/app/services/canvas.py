@@ -257,9 +257,51 @@ class Canvas:
         return base64.b64encode(buf.getvalue()).decode()
 
     def to_grid_string(self) -> str:
-        header = "    " + " ".join(f"{x:>3}" for x in range(self.size))
-        rows = [f"{y:>3} " + " ".join(f"{v:>3}" for v in row) for y, row in enumerate(self.pixels)]
-        return header + "\n" + "\n".join(rows)
+        """Convert canvas to compact string representation."""
+        # For small canvases, show full grid. For large, condensed.
+        if self.size <= 16:
+            header = "    " + " ".join(f"{x:>3}" for x in range(self.size))
+            rows = [
+                f"{y:>3} " + " ".join(f"{v:>3}" for v in row) for y, row in enumerate(self.pixels)
+            ]
+            return header + "\n" + "\n".join(rows)
+
+        # For larger canvases (32+), show condensed version
+        # Group 2x2 pixels into cells
+        cell_size = 2
+        condensed_size = self.size // cell_size
+        condensed = []
+        for y in range(0, self.size, cell_size):
+            row_str = ""
+            for x in range(0, self.size, cell_size):
+                # Get representative color (center of cell)
+                color = self.pixels[y + cell_size // 2][x + cell_size // 2]
+                if color == -1:
+                    row_str += " . "
+                else:
+                    row_str += f" {color} "
+            condensed.append(row_str)
+
+        # Also show sparse coordinate list of non-empty pixels
+        pixels = [
+            (x, y, self.pixels[y][x])
+            for y in range(self.size)
+            for x in range(self.size)
+            if self.pixels[y][x] >= 0
+        ]
+
+        grid = f"[{self.size}x{self.size} condensed {cell_size}x{cell_size} blocks]\n" + "\n".join(
+            condensed
+        )
+
+        if pixels:
+            # Show first 30 non-empty pixels
+            sample = pixels[:30]
+            grid += f"\n\nNon-empty pixels ({len(pixels)} total): {sample}"
+            if len(pixels) > 30:
+                grid += f" ... +{len(pixels) - 30} more"
+
+        return grid
 
     def get_color_usage(self) -> dict[str, int]:
         usage = {}
@@ -275,9 +317,10 @@ class Canvas:
         return usage
 
     def view_canvas(self) -> str:
+        """View canvas state - simplified for LLM to avoid context overflow."""
         grid = self.to_grid_string()
-        img_b64 = self.to_image_b64(64)
 
+        # Count colors - simplified without image
         color_counts: dict[int, int] = {}
         for row in self.pixels:
             for v in row:
@@ -291,7 +334,12 @@ class Canvas:
                 summary.append(f"{idx}({self.palette[idx]}): {count}px")
 
         total = sum(c for i, c in color_counts.items() if i >= 0)
-        return f"{grid}\n\nCOLOR USAGE: {', '.join(summary[:12])}\nFilled: {total}/{self.size * self.size}px\n\n[RENDERED PREVIEW base64 PNG 64x64]\n{img_b64}"
+        # NO base64 image - too large for LLM context
+        return f"{grid}\n\nCOLOR USAGE: {', '.join(summary[:8])}\nFilled: {total}/{self.size * self.size}px"
 
     def finish(self) -> str:
+        # Check if canvas is empty (all -1 pixels)
+        filled_pixels = sum(1 for row in self.pixels for p in row if p >= 0)
+        if filled_pixels == 0:
+            return "ERROR: Cannot finish - canvas is empty. Draw something first using the canvas tools."
         return "FINISHED"

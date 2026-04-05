@@ -4,6 +4,7 @@ from typing import Optional, Callable
 from app.services.canvas import Canvas
 from app.config import get_settings
 from app.services.constants import SPRITE_TYPE_HINTS
+from app.utils.logging import agent_logger, log_operation
 
 
 TOOL_DESCRIPTIONS = """
@@ -50,7 +51,14 @@ WORKFLOW:
 2. Add texture with noise_fill_rect or voronoi_fill for natural variation
 3. Add detail with individual pixels
 4. Use view_canvas to check your progress
-5. Call finish when done
+5. Call finish when the sprite looks complete
+
+IMPORTANT:
+- You have LIMITED iterations - do NOT keep drawing endlessly
+- After 2-3 drawing actions, check with view_canvas and decide if done
+- If canvas has meaningful content, CALL finish() - don't over-detail
+- "Done" means recognizable sprite, not perfection
+- ITERATION LIMIT: If you call finish with an error (canvas empty), you must draw something first
 
 Remember: (0,0) is top-left, ({size - 1},{size - 1}) is bottom-right."""
 
@@ -69,6 +77,17 @@ Use the canvas tools to make the requested changes. Call view_canvas to check pr
 
 def parse_tool_calls(response: str) -> list[dict]:
     """Parse tool calls from LLM response using regex."""
+    # First try to extract from markdown code blocks
+    # Look for content between ```python or ``` and ```
+    code_block_match = re.search(r"```(?:python)?\s*(.*?)```", response, re.DOTALL)
+    if code_block_match:
+        response = code_block_match.group(1)
+
+    # Also look for tool calls after "Output:" or "Result:" prefix
+    output_match = re.search(r"(?:Output|Result|Answer):\s*(.*)", response, re.DOTALL)
+    if output_match:
+        response = output_match.group(1)
+
     tool_patterns = {
         "draw_pixel": r"draw_pixel\(x=(\d+),\s*y=(\d+),\s*color=(-?\d+)\)",
         "fill_rect": r"fill_rect\(x1=(\d+),\s*y1=(\d+),\s*x2=(\d+),\s*y2=(\d+),\s*color=(-?\d+)\)",
@@ -395,22 +414,125 @@ class LocalAgent:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.http_client = httpx.Client(timeout=120.0)
+        self.http_client = httpx.Client(timeout=30.0)
+
+    def check_connectivity(self) -> tuple[bool, str]:
+        """Check if LLM server is reachable and responding.
+
+        Returns:
+            Tuple of (is_available, error_message)
+            - (True, "") if server is reachable
+            - (False, "error details") if unreachable
+        """
+        try:
+            log_operation(
+                agent_logger, "LLM connectivity check", details=f"checking {self.llm_url}"
+            )
+            response = self.http_client.get(
+                f"{self.llm_url}/v1/models",
+                timeout=10.0,
+            )
+            if response.status_code == 200:
+                log_operation(
+                    agent_logger,
+                    "LLM connectivity check",
+                    success=True,
+                    details="LLM server is ready",
+                )
+                return (True, "")
+            else:
+                error_msg = f"LLM server returned status {response.status_code}"
+                log_operation(
+                    agent_logger, "LLM connectivity check", success=False, details=error_msg
+                )
+                return (False, error_msg)
+        except httpx.ConnectError as e:
+            error_msg = f"Cannot connect to LLM at {self.llm_url}: {e}"
+            log_operation(agent_logger, "LLM connectivity check", success=False, error=e)
+            return (False, error_msg)
+        except httpx.TimeoutException as e:
+            error_msg = f"LLM server timed out: {e}"
+            log_operation(agent_logger, "LLM connectivity check", success=False, error=e)
+            return (False, error_msg)
+        except Exception as e:
+            error_msg = f"LLM connectivity check failed: {type(e).__name__}: {e}"
+            log_operation(agent_logger, "LLM connectivity check", success=False, error=e)
+            return (False, error_msg)
 
     def chat(self, messages: list[dict]) -> str:
         """Send a chat request to local LLM."""
-        response = self.http_client.post(
-            f"{self.llm_url}/v1/chat/completions",
-            json={
-                "model": self.model,
-                "messages": messages,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+        try:
+            # Log what we're sending (truncated)
+            msg_summary = f"model={self.model}, messages={len(messages)}"
+            if messages:
+                # Log first message (usually system prompt length) and last user message
+                last_user = next(
+                    (m["content"][:200] for m in reversed(messages) if m["role"] == "user"), ""
+                )
+                msg_summary += f", last_msg: {last_user[:100]}..."
+
+            log_operation(
+                agent_logger,
+                "LLM chat request",
+                details=msg_summary,
+            )
+            response = self.http_client.post(
+                f"{self.llm_url}/v1/chat/completions",
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract usage info if available
+            usage_info = ""
+            if "usage" in data:
+                usage = data["usage"]
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", 0)
+                usage_info = f", tokens={total_tokens}(p={prompt_tokens},c={completion_tokens})"
+
+            content = data["choices"][0]["message"]["content"]
+
+            # Log LLM response (truncated for readability)
+            response_preview = (
+                content[:300].replace("\n", " ") + "..."
+                if len(content) > 300
+                else content.replace("\n", " ")
+            )
+            log_operation(
+                agent_logger,
+                "LLM response",
+                details=f"{response_preview}{usage_info}",
+            )
+
+            return content
+        except httpx.ConnectError as e:
+            error_msg = f"Cannot connect to LLM: {e}"
+            log_operation(agent_logger, "LLM chat request", success=False, error=e)
+            raise ConnectionError(error_msg) from e
+        except httpx.TimeoutException as e:
+            error_msg = f"LLM request timed out: {e}"
+            log_operation(agent_logger, "LLM chat request", success=False, error=e)
+            raise TimeoutError(error_msg) from e
+        except httpx.HTTPStatusError as e:
+            log_operation(
+                agent_logger,
+                "LLM chat request",
+                success=False,
+                details=f"HTTP {e.response.status_code}",
+            )
+            raise RuntimeError(
+                f"LLM returned error: {e.response.status_code} - {e.response.text[:200]}"
+            ) from e
+        except Exception as e:
+            log_operation(agent_logger, "LLM chat request", success=False, error=e)
+            raise RuntimeError(f"LLM request failed: {type(e).__name__}: {e}") from e
 
     def run(
         self,
@@ -422,24 +544,73 @@ class LocalAgent:
         max_iterations: int = 40,
         existing_pixels: Optional[list[list[int]]] = None,
         on_step: Optional[Callable[[int, str, str], None]] = None,
+        reference_image_b64: Optional[str] = None,
     ) -> Canvas:
-        """Run the agent to generate pixel art (initial generation)."""
+        """Run the agent to generate pixel art (initial generation).
+
+        Args:
+            reference_image_b64: Optional base64 encoded reference image to include in prompt
+        """
+        log_operation(
+            agent_logger,
+            "Agent run started",
+            details=f"gen_id={gen_id}, size={size}x{size}, max_iterations={max_iterations}",
+        )
+
+        # Check LLM connectivity before starting
+        is_available, error_msg = self.check_connectivity()
+        if not is_available:
+            log_operation(
+                agent_logger, "Agent run failed - LLM unavailable", success=False, details=error_msg
+            )
+            raise ConnectionError(f"LLM server unavailable: {error_msg}")
 
         canvas = Canvas(size, palette, existing_pixels)
 
-        system_prompt = build_system_prompt(prompt, palette, size, sprite_type)
+        # Build system prompt - include reference if provided
+        if reference_image_b64:
+            system_prompt = f"""A reference concept image is provided. Match its shapes, colors, and composition as closely as possible in pixel art form.
+
+Reference image (base64 PNG): data:image/png;base64,{reference_image_b64}
+
+{build_system_prompt(prompt, palette, size, sprite_type)}"""
+        else:
+            system_prompt = build_system_prompt(prompt, palette, size, sprite_type)
 
         messages = [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": "Generate pixel art based on the subject. Use the canvas tools to draw. Call view_canvas to see your progress, then call finish when done.",
+                "content": f"""Generate pixel art for: "{prompt}"
+
+STRICT INSTRUCTIONS - USE THIS EXACT FORMAT:
+
+CORRECT (will be parsed):
+- fill_rect(x1=16, y1=32, x2=48, y2=48, color=2)
+- draw_circle(cx=32, cy=32, radius=8, color=1, fill=True)
+- view_canvas()
+- finish()
+
+WRONG (will be ignored):
+- "I'll draw a rectangle" 
+- "```python\nfill_rect(...)\n```"
+- Any explanation text before the tool call
+
+You MUST output ONLY the tool call, no explanation, no markdown, no code blocks.
+Start with a drawing tool now.""",
             },
         ]
 
         _sessions[gen_id] = Session(gen_id, canvas, messages, prompt)
 
-        return self._run_loop(gen_id, messages, canvas, max_iterations, on_step)
+        result = self._run_loop(gen_id, messages, canvas, max_iterations, on_step)
+
+        log_operation(agent_logger, "Agent run completed", success=True, details=f"gen_id={gen_id}")
+
+        # Clean up session to prevent memory leak
+        _sessions.pop(gen_id, None)
+
+        return result
 
     def continue_session(
         self,
@@ -476,6 +647,14 @@ class LocalAgent:
     ) -> Canvas:
         """Internal loop for running agent iterations."""
 
+        # Keep message history bounded to avoid context overflow
+        # Keep: system prompt + last N conversation turns
+        MAX_MESSAGES = 10  # About 20 message entries (user + assistant pairs)
+
+        # Track empty finish attempts to prevent infinite loops
+        empty_finish_count = 0
+        MAX_EMPTY_FINISH = 3
+
         iteration = 0
 
         while iteration < max_iterations:
@@ -484,6 +663,10 @@ class LocalAgent:
 
             response = self.chat(messages)
             messages.append({"role": "assistant", "content": response})
+
+            # Log full LLM response to DB for frontend display
+            if on_step:
+                on_step(iteration, "llm_response", response)
 
             tool_calls = parse_tool_calls(response)
 
@@ -494,6 +677,8 @@ class LocalAgent:
                         "content": "Please use a tool. Call view_canvas to see the canvas, then continue drawing or finish.",
                     }
                 )
+                if on_step:
+                    on_step(iteration, "warning", "No tool calls found in LLM response")
                 continue
 
             for call in tool_calls:
@@ -511,7 +696,35 @@ class LocalAgent:
                 messages.append({"role": "user", "content": f"Tool {tool_name} result: {result}"})
 
                 if tool_name == "finish":
+                    # Check if finish returned an error (empty canvas)
+                    if result.startswith("ERROR:"):
+                        empty_finish_count += 1
+                        if empty_finish_count >= MAX_EMPTY_FINISH:
+                            # Too many empty finish attempts - force a simple fill
+                            on_step(
+                                iteration,
+                                "warning",
+                                "Too many empty finish attempts. Forcing basic fill...",
+                            )
+                            canvas.fill_rect(0, 0, canvas.size - 1, canvas.size - 1, 0)
+                            return canvas
+                        # Don't return - continue to draw more
+                        on_step(iteration, "warning", f"Finish rejected: {result}. Continuing...")
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": "You cannot finish with an empty canvas. Use fill_rect, draw_circle, or other tools to draw the sprite first. Keep drawing until canvas has content, then call finish().",
+                            }
+                        )
+                        continue
                     return canvas
+
+            # Trim message history to prevent context overflow
+            if len(messages) > MAX_MESSAGES + 1:  # +1 for system message
+                # Keep system message, trim to recent messages
+                system_msg = messages[0]  # system prompt
+                recent = messages[-(MAX_MESSAGES):]
+                messages = [system_msg] + recent
 
             iteration += 1
 

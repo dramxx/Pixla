@@ -254,10 +254,26 @@ class TestCanvas:
     def test_finish(self):
         palette = ["#FF0000"]
         canvas = Canvas(4, palette)
+        # Add some pixels first - finish should work with non-empty canvas
+        canvas.pixels[0][0] = 0
+        canvas.pixels[1][1] = 0
 
         result = canvas.finish()
 
         assert result == "FINISHED"
+
+    def test_finish_empty_returns_error(self):
+        """Test that finish() on empty canvas returns error."""
+        palette = ["#FF0000"]
+        canvas = Canvas(4, palette)
+        # Don't add any pixels - canvas is empty
+
+        result = canvas.finish()
+
+        assert (
+            result
+            == "ERROR: Cannot finish - canvas is empty. Draw something first using the canvas tools."
+        )
 
     def test_fill_rect_clips_to_bounds(self):
         palette = ["#FF0000", "#00FF00"]
