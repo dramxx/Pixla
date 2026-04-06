@@ -2,6 +2,36 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Canvas } from '@/components/Canvas'
 
+// Mock canvas getContext for jsdom
+const mockCanvasContext = {
+  clearRect: vi.fn(),
+  fillStyle: '',
+  fillRect: vi.fn(),
+  strokeStyle: '',
+  lineWidth: 0,
+  beginPath: vi.fn(),
+  moveTo: vi.fn(),
+  lineTo: vi.fn(),
+  stroke: vi.fn(),
+}
+
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+  writable: true,
+  value: vi.fn().mockReturnValue(mockCanvasContext),
+})
+
+Object.defineProperty(HTMLCanvasElement.prototype, 'width', {
+  writable: true,
+  value: 0,
+  configurable: true,
+})
+
+Object.defineProperty(HTMLCanvasElement.prototype, 'height', {
+  writable: true,
+  value: 0,
+  configurable: true,
+})
+
 describe('Canvas', () => {
   beforeEach(() => {
     vi.useFakeTimers()

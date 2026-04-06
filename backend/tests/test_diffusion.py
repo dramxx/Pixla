@@ -125,15 +125,16 @@ class TestDiffusionLoRA:
         """Should warn but not fail when LoRA file not found."""
         mock_pipeline = MagicMock()
 
-        from app.services.diffusion import DiffusionService
+        from app.services import diffusion as diffusion_module
+        from app.utils.logging import diffusion_logger
 
-        service = DiffusionService(model_id="dummy", device="cpu", dtype="float32")
+        service = diffusion_module.DiffusionService(model_id="dummy", device="cpu", dtype="float32")
         service._pipeline = mock_pipeline
 
-        with patch("app.services.diffusion.print") as mock_print:
+        with patch.object(diffusion_logger, "warning") as mock_warning:
             service.load_loras([{"path": "/nonexistent/lora.safetensors", "scale": 1.0}])
 
-            assert any("Warning: LoRA not found" in str(c) for c in mock_print.call_args_list)
+            assert any("LoRA not found" in str(c) for c in mock_warning.call_args_list)
             mock_pipeline.load_lora_weights.assert_not_called()
 
     def test_load_loras_default_scale(self):
@@ -160,21 +161,25 @@ class TestDiffusionLoRA:
         """Should print when LoRA is loaded."""
         mock_pipeline = MagicMock()
 
-        from app.services.diffusion import DiffusionService
+        from app.services import diffusion as diffusion_module
 
         with tempfile.TemporaryDirectory() as tmpdir:
             lora_file = Path(tmpdir) / "test.safetensors"
             lora_file.write_bytes(b"x")
 
-            service = DiffusionService(model_id=tmpdir, device="cpu", dtype="float32")
+            service = diffusion_module.DiffusionService(
+                model_id=tmpdir, device="cpu", dtype="float32"
+            )
             service._pipeline = mock_pipeline
 
-            with patch("app.services.diffusion.print") as mock_print:
+            from app.utils.logging import diffusion_logger
+
+            with patch.object(diffusion_logger, "info") as mock_info:
                 service.load_loras([{"path": str(lora_file), "scale": 0.5}])
 
-                printed_output = [str(c) for c in mock_print.call_args_list]
-                assert any("Loaded LoRA" in o for o in printed_output)
-                assert any("scale=0.5" in o for o in printed_output)
+                logged_output = [str(c) for c in mock_info.call_args_list]
+                assert any("Loaded LoRA" in o for o in logged_output)
+                assert any("scale=0.5" in o for o in logged_output)
 
 
 class TestDiffusionUnload:

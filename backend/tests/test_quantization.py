@@ -54,7 +54,7 @@ class TestQuantization:
         img = Image.new("RGB", (4, 4), (255, 0, 0))
         palette = ["#FF0000", "#00FF00", "#0000FF"]
 
-        result = quantize_image_to_palette(img, palette, 4)
+        result = quantize_image_to_palette(img, palette, 4, detect_transparency=False)
 
         assert len(result) == 4
         assert len(result[0]) == 4
@@ -64,7 +64,7 @@ class TestQuantization:
         img = Image.new("RGB", (2, 2), (0, 255, 0))
         palette = ["#FF0000", "#00FF00"]
 
-        result = quantize_image_to_palette(img, palette, 2)
+        result = quantize_image_to_palette(img, palette, 2, detect_transparency=False)
 
         assert result[0][0] == 1
 

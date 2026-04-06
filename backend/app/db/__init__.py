@@ -75,6 +75,19 @@ class Database:
     def _create_default_palette(self, conn):
         palettes = [
             (
+                "Default",
+                [
+                    "#000000",
+                    "#FFFFFF",
+                    "#8B4513",
+                    "#C0C0C0",
+                    "#FF0000",
+                    "#00FF00",
+                    "#0000FF",
+                    "#FFFF00",
+                ],
+            ),
+            (
                 "Basic",
                 [
                     "#000000",
